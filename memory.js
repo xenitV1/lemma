@@ -113,7 +113,7 @@ const TOOLS = [
   },
   {
     name: "memory_check",
-    description: "Check if information about a project or topic already exists in memory. Call this BEFORE analyzing or researching to avoid redundant work.",
+    description: "MANDATORY: Call this BEFORE any analysis, research, or document reading. Checks if project/topic already exists in memory. Prevents redundant work.",
     inputSchema: {
       type: "object",
       properties: {
@@ -126,7 +126,7 @@ const TOOLS = [
   },
   {
     name: "memory_add",
-    description: "Add a new memory fragment with metadata and initial confidence.",
+    description: "MANDATORY: Call this AFTER completing analysis/research to save findings. Synthesize information into short, reusable fragments.",
     inputSchema: {
       type: "object",
       properties: {
