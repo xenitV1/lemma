@@ -4,6 +4,7 @@ node_modules/
 .env
 .gemini/
 .claude/
+.mcp.json
 dist/
 build/
 test-results/
