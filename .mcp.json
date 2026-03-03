@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "lemma": {
-      "command": "node",
-      "args": ["C:\\dev\\Lemma\\memory.js"]
-    }
-  }
-}
