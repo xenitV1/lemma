@@ -135,11 +135,11 @@ At the start of each session: Call memory_read to load stored fragments.
 
 ## Available Tools
 
-### `memory_read`
+Read and return formatted memory fragments for LLM consumption. Applies confidence decay, limits to top-K, and reformats for optimum context.
 
-Read and return formatted memory fragments for LLM consumption. Applies decay automatically.
-
-**Parameters:** None
+**Parameters:**
+- `project` (string, optional): Project name to filter (defaults to current project).
+- `query` (string, optional): Semantic search keyword to find specific context.
 
 **Returns:** Formatted string with confidence bars:
 
@@ -151,6 +151,13 @@ Read and return formatted memory fragments for LLM consumption. Applies decay au
     Project is TypeScript, Node 20
 ==============================
 ```
+
+### `memory_check`
+
+**MANDATORY:** Call this BEFORE any analysis, research, or document reading. Checks if project/topic already exists in memory. Prevents redundant work.
+
+**Parameters:**
+- `project` (string, optional): Project name to check (defaults to current project).
 
 ### `memory_add`
 
