@@ -51,9 +51,34 @@ Memories are stored in JSONL format at:
 | **macOS** | `/Users/{username}/.lemma/memory.jsonl` |
 | **Linux** | `/home/{username}/.lemma/memory.jsonl` |
 
-## Installation
+## Quick Start (No Installation Required)
+
+The easiest way to use Lemma is to run it directly from GitHub using `npx`. You don't even need to download the repository!
+
+Add this to your MCP client configuration:
+
+**Claude Desktop (Windows):** `%APPDATA%\Claude\claude_desktop_config.json`  
+**Claude Desktop (macOS):** `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "lemma": {
+      "command": "npx",
+      "args": ["-y", "github:xenitV1/lemma"]
+    }
+  }
+}
+```
+
+---
+
+## 🚀 Manual Installation (For Developers)
+
+If you want to modify Lemma or run it locally:
 
 ```bash
+git clone https://github.com/xenitV1/lemma
 cd Lemma
 npm install
 ```
@@ -62,27 +87,20 @@ npm install
 
 - Node.js 18.0.0 or higher
 
-## MCP Client Configuration
+### Local Configuration
 
-Add to your MCP client configuration:
-
-**Claude Desktop (macOS):** `~/Library/Application Support/Claude/claude_desktop_config.json`
-**Claude Desktop (Windows):** `%APPDATA%\Claude\claude_desktop_config.json`
+If you have cloned the repository locally, use this configuration:
 
 ```json
 {
   "mcpServers": {
     "lemma": {
       "command": "node",
-      "args": ["C:\\dev\\Lemma\\memory.js"]
+      "args": ["C:\\path\\to\\your\\Lemma\\memory.js"]
     }
   }
 }
 ```
-
-## System Prompt
-
-The MCP server provides a system prompt resource at `lemma://system-prompt`. MCP clients can automatically discover and load this.
 
 **Manual configuration** (if needed):
 
