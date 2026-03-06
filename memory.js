@@ -298,6 +298,20 @@ const TOOLS = [
       properties: {},
     },
   },
+  {
+    name: "skill_suggest",
+    description: "Suggest relevant skills based on a task description. Analyzes the task and returns matching skills - both tracked (with experience) and untracked (new suggestions). Use this when user asks 'hangi skiller gerekli', 'uygun skiller var mı', or starting a new task.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        task: {
+          type: "string",
+          description: "Task description to analyze for skill suggestions (e.g., 'react component with hooks', 'nodejs api development', 'python data analysis')",
+        },
+      },
+      required: ["task"],
+    },
+  },
 ];
 
 // Register list tools handler
@@ -677,6 +691,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         return {
           content: [{ type: "text", text: "No new skills discovered. All project dependencies are already tracked." }],
+        };
+      }
+
+      case "skill_suggest": {
+        const task = args?.task;
+        
+        if (!task) {
+          return {
+            content: [{ type: "text", text: "Error: 'task' parameter is required" }],
+            isError: true,
+          };
+        }
+
+        const allSkills = skills.loadSkills();
+        const result = skills.suggestSkills(task, allSkills);
+        const formatted = skills.formatSuggestions(result);
+        
+        return {
+          content: [{ type: "text", text: formatted }],
         };
       }
 

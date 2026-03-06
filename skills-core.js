@@ -192,6 +192,190 @@ export function formatSkillsForLLM(skills) {
 }
 
 /**
+ * Skill database for task-based suggestions
+ * Maps task keywords to relevant skills
+ */
+const TASK_SKILL_MAP = {
+  // Frontend
+  "frontend": [
+    { skill: "html", category: "frontend", keywords: ["web", "sayfa", "ui", "arayüz"] },
+    { skill: "css", category: "frontend", keywords: ["stil", "style", "tasarım", "design"] },
+    { skill: "javascript", category: "language", keywords: ["js", "web", "frontend"] },
+    { skill: "react", category: "frontend", keywords: ["component", "jsx", "hook", "state"] },
+    { skill: "vue", category: "frontend", keywords: ["vue", "component", "template"] },
+    { skill: "angular", category: "frontend", keywords: ["angular", "component", "service"] },
+    { skill: "tailwind", category: "frontend", keywords: ["tailwind", "css", "utility"] },
+    { skill: "typescript", category: "language", keywords: ["ts", "tip", "type", "interface"] },
+  ],
+  // Backend
+  "backend": [
+    { skill: "nodejs", category: "backend", keywords: ["node", "server", "api", "express"] },
+    { skill: "express", category: "backend", keywords: ["express", "router", "middleware"] },
+    { skill: "python", category: "language", keywords: ["py", "django", "flask", "fastapi"] },
+    { skill: "fastapi", category: "backend", keywords: ["fastapi", "async", "python"] },
+    { skill: "django", category: "backend", keywords: ["django", "orm", "python"] },
+    { skill: "rest", category: "backend", keywords: ["api", "rest", "endpoint", "http"] },
+    { skill: "graphql", category: "backend", keywords: ["graphql", "query", "mutation", "schema"] },
+  ],
+  // Database
+  "database": [
+    { skill: "postgresql", category: "database", keywords: ["postgres", "sql", "relational"] },
+    { skill: "mongodb", category: "database", keywords: ["mongo", "nosql", "document"] },
+    { skill: "redis", category: "database", keywords: ["redis", "cache", "key-value"] },
+    { skill: "prisma", category: "database", keywords: ["prisma", "orm", "schema"] },
+    { skill: "sqlite", category: "database", keywords: ["sqlite", "local", "embedded"] },
+  ],
+  // Tools
+  "tool": [
+    { skill: "git", category: "tool", keywords: ["git", "commit", "branch", "merge"] },
+    { skill: "docker", category: "tool", keywords: ["docker", "container", "image"] },
+    { skill: "webpack", category: "tool", keywords: ["webpack", "bundle", "build"] },
+    { skill: "vite", category: "tool", keywords: ["vite", "build", "dev", "hmr"] },
+    { skill: "jest", category: "tool", keywords: ["jest", "test", "unit", "spec"] },
+    { skill: "eslint", category: "tool", keywords: ["eslint", "lint", "format"] },
+  ],
+  // DevOps
+  "devops": [
+    { skill: "ci-cd", category: "tool", keywords: ["ci", "cd", "pipeline", "github actions"] },
+    { skill: "kubernetes", category: "tool", keywords: ["k8s", "kubernetes", "pod", "deployment"] },
+    { skill: "aws", category: "tool", keywords: ["aws", "s3", "lambda", "ec2"] },
+  ],
+};
+
+/**
+ * Suggest skills based on task description
+ * @param {string} taskDescription - Task/query description
+ * @param {Array<object>} existingSkills - Current tracked skills
+ * @returns {object} { suggested: [], missing: [], relevant: [] }
+ */
+export function suggestSkills(taskDescription, existingSkills = []) {
+  const desc = taskDescription.toLowerCase();
+  const suggestions = [];
+  const seen = new Set();
+  
+  // Get all skill definitions
+  const allSkillDefs = Object.values(TASK_SKILL_MAP).flat();
+  
+  // Check each skill definition against task description
+  for (const skillDef of allSkillDefs) {
+    if (seen.has(skillDef.skill)) continue;
+    
+    // Check if skill name or keywords match
+    const matches = 
+      desc.includes(skillDef.skill) ||
+      skillDef.keywords.some(kw => desc.includes(kw));
+    
+    if (matches) {
+      seen.add(skillDef.skill);
+      const existing = existingSkills.find(s => s.skill === skillDef.skill);
+      suggestions.push({
+        ...skillDef,
+        tracked: !!existing,
+        usage_count: existing?.usage_count || 0,
+        last_used: existing?.last_used || null,
+        learnings: existing?.learnings || [],
+        contexts: existing?.contexts || [],
+      });
+    }
+  }
+  
+  // Also check tracked skills that might not be in TASK_SKILL_MAP
+  // Match by skill name and contexts
+  for (const existing of existingSkills) {
+    if (seen.has(existing.skill)) continue;
+    
+    // Check if skill name matches
+    if (desc.includes(existing.skill)) {
+      seen.add(existing.skill);
+      suggestions.push({
+        skill: existing.skill,
+        category: existing.category,
+        keywords: existing.contexts, // use contexts as keywords
+        tracked: true,
+        usage_count: existing.usage_count,
+        last_used: existing.last_used,
+        learnings: existing.learnings,
+        contexts: existing.contexts,
+      });
+      continue;
+    }
+    
+    // Check if any context matches
+    if (existing.contexts.some(ctx => desc.includes(ctx))) {
+      seen.add(existing.skill);
+      suggestions.push({
+        skill: existing.skill,
+        category: existing.category,
+        keywords: existing.contexts,
+        tracked: true,
+        usage_count: existing.usage_count,
+        last_used: existing.last_used,
+        learnings: existing.learnings,
+        contexts: existing.contexts,
+      });
+    }
+  }
+  
+  // Separate into categories
+  const tracked = suggestions.filter(s => s.tracked);
+  const missing = suggestions.filter(s => !s.tracked);
+  
+  return {
+    relevant: tracked,
+    missing: missing,
+    suggested: suggestions,
+    summary: `Found ${suggestions.length} relevant skills (${tracked.length} tracked, ${missing.length} new)`,
+  };
+}
+
+/**
+ * Format skill suggestions for LLM
+ * @param {object} result - Result from suggestSkills
+ * @returns {string} Formatted string
+ */
+export function formatSuggestions(result) {
+  let output = `=== SKILL SUGGESTIONS ===\n`;
+  output += `${result.summary}\n\n`;
+  
+  if (result.relevant.length > 0) {
+    output += `TRACKED (you have experience):\n`;
+    for (const s of result.relevant) {
+      output += `  ✓ [${s.category}] ${s.skill} (${s.usage_count}x, last: ${s.last_used || 'n/a'})\n`;
+      // Show learnings if any
+      if (s.learnings && s.learnings.length > 0) {
+        for (const l of s.learnings.slice(0, 3)) {
+          output += `      💡 ${l}\n`;
+        }
+        if (s.learnings.length > 3) {
+          output += `      ... and ${s.learnings.length - 3} more learnings\n`;
+        }
+      }
+    }
+    output += `\n`;
+  }
+  
+  if (result.missing.length > 0) {
+    output += `SUGGESTED (not tracked yet):\n`;
+    for (const s of result.missing) {
+      output += `  + [${s.category}] ${s.skill}\n`;
+      // Show keywords as hints
+      if (s.keywords && s.keywords.length > 0) {
+        output += `      keywords: ${s.keywords.slice(0, 5).join(", ")}\n`;
+      }
+    }
+    output += `\n`;
+  }
+  
+  if (result.suggested.length === 0) {
+    output += `No relevant skills found for this task.\n`;
+    output += `Try describing the task with more specific terms.\n`;
+  }
+  
+  output += `========================`;
+  return output;
+}
+
+/**
  * Format a single skill detail for LLM
  * @param {object} skill - Skill object
  * @returns {string} Formatted detail string
