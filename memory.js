@@ -8,6 +8,7 @@ import {
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import * as core from "./memory-core.js";
+import * as skills from "./skills-core.js";
 
 // System prompt for LLM clients
 const SYSTEM_PROMPT = `# Lemma — Persistent Memory System
@@ -76,6 +77,41 @@ Examples:
 2. You notice something important → source: "ai"
 3. Conflicts with existing → use update, not add
 4. User asks to forget → use forget
+
+## Skill Tracking
+
+Skills are different from memories. While memories store **knowledge**, skills track **experience**:
+
+- **Memory** = "React uses virtual DOM" (static knowledge)
+- **Skill** = "I've used React 45 times, learned useCallback prevents re-renders" (experience tracking)
+
+### When to Track Skills
+
+Call \`skill_practice\` when you actively use a technology/framework during work:
+- Writing React components → \`skill_practice("react", "frontend")\`
+- Debugging Node.js → \`skill_practice("nodejs", "backend")\`
+- Using Git commands → \`skill_practice("git", "tool")\`
+
+### Skill Categories
+
+| Category | Examples |
+|----------|----------|
+| frontend | react, vue, angular, tailwind, nextjs |
+| backend | nodejs, express, python, fastapi, django |
+| language | typescript, javascript, python, rust |
+| database | postgresql, mongodb, redis, prisma |
+| tool | git, docker, webpack, vite, jest |
+
+### Adding Learnings
+
+When you discover something useful while working with a skill, add it as a learning:
+\`\`\`
+skill_practice("react", "frontend", ["hooks"], ["useCallback prevents unnecessary re-renders"])
+\`\`\`
+
+### Discovering Skills
+
+Use \`skill_discover\` to auto-detect skills from project dependencies (package.json, etc.)
 
 ## Session Protocol
 
@@ -209,6 +245,59 @@ const TOOLS = [
       },
     },
   },
+  {
+    name: "skill_get",
+    description: "Get all tracked skills with usage statistics. Returns skills sorted by usage count (most used first).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        category: {
+          type: "string",
+          description: "Filter by category (frontend, backend, tool, language, database). Optional.",
+        },
+        skill: {
+          type: "string",
+          description: "Get detail for a specific skill name. Optional.",
+        },
+      },
+    },
+  },
+  {
+    name: "skill_practice",
+    description: "Record skill usage - increments usage count, updates last_used date, and optionally adds contexts/learnings. Call this when you use a skill during work.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        skill: {
+          type: "string",
+          description: "Skill name (e.g., 'react', 'python', 'git')",
+        },
+        category: {
+          type: "string",
+          description: "Category: frontend, backend, tool, language, database",
+        },
+        contexts: {
+          type: "array",
+          items: { type: "string" },
+          description: "Additional contexts (e.g., ['hooks', 'state']). Optional.",
+        },
+        learnings: {
+          type: "array",
+          items: { type: "string" },
+          description: "New learnings discovered during use. Optional.",
+        },
+      },
+      required: ["skill", "category"],
+    },
+  },
+  {
+    name: "skill_discover",
+    description: "Auto-discover skills from current project by analyzing package.json, config files, and file extensions.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
 ];
 
 // Register list tools handler
@@ -230,6 +319,12 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => {
         uri: "lemma://memory",
         name: "Memory Fragments",
         description: "Current memory fragments (raw JSON)",
+        mimeType: "application/json",
+      },
+      {
+        uri: "lemma://skills",
+        name: "Skills Database",
+        description: "Tracked skills with usage statistics (raw JSON)",
         mimeType: "application/json",
       },
     ],
@@ -260,6 +355,19 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
           uri,
           mimeType: "application/json",
           text: JSON.stringify(memory, null, 2),
+        },
+      ],
+    };
+  }
+
+  if (uri === "lemma://skills") {
+    const allSkills = skills.loadSkills();
+    return {
+      contents: [
+        {
+          uri,
+          mimeType: "application/json",
+          text: JSON.stringify(allSkills, null, 2),
         },
       ],
     };
@@ -449,6 +557,126 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const scopeInfo = all ? "(all projects)" : `(project: ${currentProject || "global"})`;
         return {
           content: [{ type: "text", text: `=== MEMORY FRAGMENTS ${scopeInfo} ===\n${formatted}` }],
+        };
+      }
+
+      case "skill_get": {
+        const category = args?.category || null;
+        const skillName = args?.skill || null;
+        const allSkills = skills.loadSkills();
+
+        // Get specific skill detail
+        if (skillName) {
+          const skill = skills.findSkill(allSkills, skillName);
+          return {
+            content: [{ type: "text", text: skills.formatSkillDetail(skill) }],
+          };
+        }
+
+        // Filter by category or get all
+        const filtered = category
+          ? skills.getSkillsByCategory(allSkills, category)
+          : allSkills;
+        
+        const formatted = skills.formatSkillsForLLM(filtered);
+        return {
+          content: [{ type: "text", text: formatted }],
+        };
+      }
+
+      case "skill_practice": {
+        const skillName = args?.skill;
+        const category = args?.category;
+        const contexts = args?.contexts || [];
+        const learnings = args?.learnings || [];
+
+        if (!skillName || !category) {
+          return {
+            content: [{ type: "text", text: "Error: 'skill' and 'category' parameters are required" }],
+            isError: true,
+          };
+        }
+
+        const allSkills = skills.loadSkills();
+        const updated = skills.practiceSkill(allSkills, skillName, category, contexts, learnings);
+        skills.saveSkills(allSkills);
+
+        const isNew = updated.usage_count === 1;
+        const action = isNew ? "Created" : "Updated";
+        return {
+          content: [{ type: "text", text: `${action} skill "${updated.skill}" (${updated.category}): ${updated.usage_count}x usage` }],
+        };
+      }
+
+      case "skill_discover": {
+        const fs = await import("fs");
+        const path = await import("path");
+        const cwd = process.cwd();
+        const discovered = [];
+
+        // Check package.json for dependencies
+        const pkgPath = path.join(cwd, "package.json");
+        if (fs.existsSync(pkgPath)) {
+          try {
+            const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+            const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+            
+            // Map common packages to skills
+            const packageToSkill = {
+              "react": { skill: "react", category: "frontend" },
+              "vue": { skill: "vue", category: "frontend" },
+              "angular": { skill: "angular", category: "frontend" },
+              "svelte": { skill: "svelte", category: "frontend" },
+              "next": { skill: "nextjs", category: "frontend" },
+              "express": { skill: "express", category: "backend" },
+              "fastify": { skill: "fastify", category: "backend" },
+              "nestjs": { skill: "nestjs", category: "backend" },
+              "koa": { skill: "koa", category: "backend" },
+              "typescript": { skill: "typescript", category: "language" },
+              "python": { skill: "python", category: "language" },
+              "mongoose": { skill: "mongodb", category: "database" },
+              "prisma": { skill: "prisma", category: "database" },
+              "sequelize": { skill: "sequelize", category: "database" },
+              "tailwindcss": { skill: "tailwind", category: "frontend" },
+              "jest": { skill: "jest", category: "tool" },
+              "vitest": { skill: "vitest", category: "tool" },
+              "eslint": { skill: "eslint", category: "tool" },
+              "webpack": { skill: "webpack", category: "tool" },
+              "vite": { skill: "vite", category: "tool" },
+              "docker": { skill: "docker", category: "tool" },
+            };
+
+            for (const [pkgName] of Object.entries(deps)) {
+              const mapping = packageToSkill[pkgName];
+              if (mapping) {
+                discovered.push(mapping);
+              }
+            }
+          } catch {
+            // Ignore parse errors
+          }
+        }
+
+        // Register discovered skills
+        const allSkills = skills.loadSkills();
+        const registered = [];
+        for (const { skill, category } of discovered) {
+          const existing = skills.findSkill(allSkills, skill);
+          if (!existing) {
+            skills.practiceSkill(allSkills, skill, category);
+            registered.push(`${skill} (${category})`);
+          }
+        }
+
+        if (registered.length > 0) {
+          skills.saveSkills(allSkills);
+          return {
+            content: [{ type: "text", text: `Discovered and registered ${registered.length} new skills:\n${registered.join("\n")}` }],
+          };
+        }
+
+        return {
+          content: [{ type: "text", text: "No new skills discovered. All project dependencies are already tracked." }],
         };
       }
 

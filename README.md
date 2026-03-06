@@ -212,6 +212,81 @@ List all memory fragments in JSON format.
 
 **Returns:** JSON array of all fragments
 
+## Skill Tracking
+
+Lemma also tracks skills you use during work. This helps build a profile of expertise over time.
+
+### `skill_get`
+
+Get all tracked skills with usage statistics.
+
+**Parameters:**
+- `category` (string, optional): Filter by category (frontend, backend, tool, language, database)
+- `skill` (string, optional): Get detail for a specific skill name
+
+**Returns:** Formatted skill list sorted by usage count
+
+**Example output:**
+```
+=== LEMMA SKILLS ===
+[frontend] react: 45x (last: 2026-03-06) [hooks, jsx, state] (3 learnings)
+[backend] nodejs: 30x (last: 2026-03-05) [express, api]
+[language] typescript: 25x (last: 2026-03-06)
+====================
+```
+
+### `skill_practice`
+
+Record skill usage - increments usage count, updates last_used date, and optionally adds contexts/learnings.
+
+**Parameters:**
+- `skill` (string, required): Skill name (e.g., "react", "python", "git")
+- `category` (string, required): Category: frontend, backend, tool, language, database
+- `contexts` (array of strings, optional): Additional contexts (e.g., ["hooks", "state"])
+- `learnings` (array of strings, optional): New learnings discovered during use
+
+**Example:**
+```json
+{
+  "skill": "react",
+  "category": "frontend",
+  "contexts": ["hooks", "useCallback"],
+  "learnings": ["useCallback prevents unnecessary re-renders"]
+}
+```
+
+### `skill_discover`
+
+Auto-discover skills from current project by analyzing package.json dependencies.
+
+**Parameters:** None
+
+**Returns:** List of newly discovered and registered skills
+
+### Skill File Location
+
+Skills are stored in JSONL format at:
+
+| OS | Path |
+|---|---|
+| **Windows** | `C:\Users\{username}\.lemma\skills.jsonl` |
+| **macOS** | `/Users/{username}/.lemma/skills.jsonl` |
+| **Linux** | `/home/{username}/.lemma/skills.jsonl` |
+
+### Skill Data Structure
+
+```json
+{
+  "id": "s1a2b3",
+  "skill": "react",
+  "category": "frontend",
+  "usage_count": 45,
+  "last_used": "2026-03-06",
+  "contexts": ["hooks", "jsx", "state"],
+  "learnings": ["useCallback prevents unnecessary re-renders"]
+}
+```
+
 ## Philosophy
 
 ### What Should Be Stored

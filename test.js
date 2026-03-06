@@ -348,6 +348,107 @@ async function test_findSimilarFragment_matching() {
   assert.strictEqual(unrelated, null, "Unrelated text should not match");
 }
 
+// ============================================
+// SKILLS TESTS
+// ============================================
+
+// Import skills module with path override
+async function importSkillsWithOverride(skillsFilePath) {
+  const tempModulePath = path.join(tempDir, `skills-core-${Date.now()}.mjs`);
+  const originalCode = await fs.readFile(
+    path.join(__dirname, "skills-core.js"),
+    "utf-8"
+  );
+
+  const normalizedPath = skillsFilePath.replace(/\\/g, "/");
+  const modifiedCode = originalCode.replace(
+    /const SKILLS_FILE = path\.join\(MEMORY_DIR, "skills\.jsonl"\);/,
+    `const SKILLS_FILE = "${normalizedPath}";`
+  );
+
+  await fs.writeFile(tempModulePath, modifiedCode);
+  return import(pathToFileURL(tempModulePath).href);
+}
+
+// Test: createSkill creates valid object
+async function test_skills_createSkill() {
+  const skills = await importSkillsWithOverride(path.join(tempDir, "skills-create.jsonl"));
+  const skill = skills.createSkill("React", "Frontend", ["hooks", "jsx"], ["useCallback önemli"]);
+  
+  assert.ok(skill.id.startsWith("s"), "ID should start with 's'");
+  assert.strictEqual(skill.skill, "react", "Skill name should be lowercase");
+  assert.strictEqual(skill.category, "frontend", "Category should be lowercase");
+  assert.strictEqual(skill.usage_count, 1, "Initial usage count should be 1");
+  assert.strictEqual(skill.contexts.length, 2, "Should have 2 contexts");
+  assert.strictEqual(skill.learnings.length, 1, "Should have 1 learning");
+}
+
+// Test: practiceSkill increments usage
+async function test_skills_practiceSkill() {
+  const skills = await importSkillsWithOverride(path.join(tempDir, "skills-practice.jsonl"));
+  const allSkills = [];
+  
+  // First practice creates skill
+  const skill1 = skills.practiceSkill(allSkills, "React", "frontend");
+  assert.strictEqual(skill1.usage_count, 1, "First practice should set usage to 1");
+  
+  // Second practice increments
+  const skill2 = skills.practiceSkill(allSkills, "React", "frontend");
+  assert.strictEqual(skill2.usage_count, 2, "Second practice should increment to 2");
+  assert.strictEqual(allSkills.length, 1, "Should still be 1 skill");
+}
+
+// Test: practiceSkill merges contexts and learnings
+async function test_skills_mergeContextsLearnings() {
+  const skills = await importSkillsWithOverride(path.join(tempDir, "skills-merge.jsonl"));
+  const allSkills = [];
+  
+  // Create with initial contexts/learnings
+  skills.practiceSkill(allSkills, "React", "frontend", ["hooks"], ["learning1"]);
+  
+  // Add more contexts/learnings
+  const updated = skills.practiceSkill(allSkills, "React", "frontend", ["jsx", "hooks"], ["learning2"]);
+  
+  assert.strictEqual(updated.contexts.length, 2, "Should have 2 unique contexts");
+  assert.strictEqual(updated.learnings.length, 2, "Should have 2 unique learnings");
+  assert.ok(updated.contexts.includes("hooks"), "Should have hooks context");
+  assert.ok(updated.contexts.includes("jsx"), "Should have jsx context");
+}
+
+// Test: findSkill finds by name case insensitive
+async function test_skills_findSkill() {
+  const skills = await importSkillsWithOverride(path.join(tempDir, "skills-find.jsonl"));
+  const allSkills = [];
+  skills.practiceSkill(allSkills, "React", "frontend");
+  
+  const found1 = skills.findSkill(allSkills, "react");
+  assert.ok(found1, "Should find with lowercase");
+  
+  const found2 = skills.findSkill(allSkills, "REACT");
+  assert.ok(found2, "Should find with uppercase");
+  
+  const found3 = skills.findSkill(allSkills, "Vue");
+  assert.strictEqual(found3, null, "Should not find non-existent skill");
+}
+
+// Test: getTopSkills sorts by usage
+async function test_skills_getTopSkills() {
+  const skills = await importSkillsWithOverride(path.join(tempDir, "skills-top.jsonl"));
+  const allSkills = [];
+  
+  skills.practiceSkill(allSkills, "React", "frontend");
+  skills.practiceSkill(allSkills, "Vue", "frontend");
+  skills.practiceSkill(allSkills, "Vue", "frontend");
+  skills.practiceSkill(allSkills, "Angular", "frontend");
+  skills.practiceSkill(allSkills, "Angular", "frontend");
+  skills.practiceSkill(allSkills, "Angular", "frontend");
+  
+  const top = skills.getTopSkills(allSkills, 10);
+  assert.strictEqual(top[0].skill, "angular", "Angular should be first (3 uses)");
+  assert.strictEqual(top[1].skill, "vue", "Vue should be second (2 uses)");
+  assert.strictEqual(top[2].skill, "react", "React should be third (1 use)");
+}
+
 // Setup and teardown
 async function setup() {
   tempDir = path.join(os.tmpdir(), `lemma-test-${Date.now()}`);
@@ -381,6 +482,13 @@ async function runTests() {
   await runTest("filterByProject - correct filtering", test_filterByProject_correctFiltering);
   await runTest("searchAndSortFragments - search and sort", test_searchAndSortFragments_searchAndSort);
   await runTest("findSimilarFragment - matching", test_findSimilarFragment_matching);
+
+  // Skills tests
+  await runTest("skills - createSkill creates valid object", test_skills_createSkill);
+  await runTest("skills - practiceSkill increments usage", test_skills_practiceSkill);
+  await runTest("skills - practiceSkill merges contexts and learnings", test_skills_mergeContextsLearnings);
+  await runTest("skills - findSkill finds by name case insensitive", test_skills_findSkill);
+  await runTest("skills - getTopSkills sorts by usage", test_skills_getTopSkills);
 
   console.log("\n" + "=".repeat(50));
   console.log(`Tests passed: ${passed}`);
