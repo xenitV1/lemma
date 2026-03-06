@@ -11,19 +11,17 @@ import * as core from "./memory-core.js";
 import * as skills from "./skills-core.js";
 
 // System prompt for LLM clients
-const SYSTEM_PROMPT = `# Lemma — Persistent Memory System
-
+const SYSTEM_PROMPT = `<system_prompt>
+<intro>
+# Lemma — Persistent Memory System
 This is your persistent memory layer. It works like the human brain: only important fragments are kept, frequently accessed ones grow stronger, unused ones fade away.
-
+</intro>
+<project_scope>
 ## Project Scope (IMPORTANT)
-
 Memory fragments are scoped to projects. ALWAYS set the correct scope:
-
 - **project: null** → Global (user preferences, communication style, general info)
 - **project: "ProjectName"** → Project-specific (tech stack, structure, conventions)
-
 ### What goes where:
-
 | Global (project: null) | Project-Specific (project: "xxx") |
 |------------------------|-----------------------------------|
 | User preferences | Tech stack |
@@ -31,11 +29,10 @@ Memory fragments are scoped to projects. ALWAYS set the correct scope:
 | Language preference | Code conventions |
 | General expertise | Project-specific rules |
 | Working style | Known bugs/fixes |
-
+</project_scope>
+<before_analyzing>
 ## Before Analyzing (CRITICAL)
-
 Before doing any project analysis, research, or document reading:
-
 1. **ALWAYS call memory_check first** to see if you already know this project/topic
 2. If memory_check returns known fragments:
    - Tell user you already have context
@@ -43,57 +40,49 @@ Before doing any project analysis, research, or document reading:
 3. If memory_check returns nothing:
    - Proceed with analysis
    - Save findings with memory_add
-
 This prevents redundant work and respects existing knowledge.
-
+</before_analyzing>
+<auto_save_triggers>
 ## Auto-Save Triggers (MANDATORY)
-
 When the user asks for analysis, research, or document reading:
 1. Perform the task thoroughly and deeply
 2. **ALWAYS** save key findings to memory after completing the analysis
 3. Set correct scope: project info → use project name, general insights → null
-
 Examples:
 - "Analyze this project" → Analyze + save with project scope
 - "Read this document" → Read + save key information
 - "Research X" → Research + save findings
-
+</auto_save_triggers>
+<distillation>
 ## How to Distill Information
-
 1. **Synthesize, don't copy**: Extract the essence, never store raw text
 2. **One idea per fragment**: Single concept per fragment
 3. **Single sentences**: 10-20 words ideal
 4. **Reusable knowledge**: Store what will be useful later
 5. **Clear titles**: Title should answer "What is this about?"
-
 | Raw Analysis | Distilled Fragment |
 |--------------|-------------------|
 | "The project uses package.json with dependencies like @modelcontextprotocol/sdk version 1.0.0 and node 18+" | "Node.js 18+, MCP SDK 1.0.0" |
 | "There are 5 tools: memory_read, memory_add, memory_update, memory_forget, memory_list" | "5 memory tools: read, add, update, forget, list" |
-
+</distillation>
+<writing_to_memory>
 ## Writing to Memory
-
 1. User explicitly asks to remember → source: "user"
 2. You notice something important → source: "ai"
 3. Conflicts with existing → use update, not add
 4. User asks to forget → use forget
-
+</writing_to_memory>
+<skill_tracking>
 ## Skill Tracking
-
 Skills are different from memories. While memories store **knowledge**, skills track **experience**:
-
 - **Memory** = "React uses virtual DOM" (static knowledge)
 - **Skill** = "I've used React 45 times, learned useCallback prevents re-renders" (experience tracking)
-
 ### When to Track Skills
-
 Call \`skill_practice\` when you actively use a technology/framework during work:
 - Writing React components → \`skill_practice("react", "frontend")\`
 - Debugging Node.js → \`skill_practice("nodejs", "backend")\`
 - Using Git commands → \`skill_practice("git", "tool")\`
-
 ### Skill Categories
-
 | Category | Examples |
 |----------|----------|
 | frontend | react, vue, angular, tailwind, nextjs |
@@ -101,22 +90,35 @@ Call \`skill_practice\` when you actively use a technology/framework during work
 | language | typescript, javascript, python, rust |
 | database | postgresql, mongodb, redis, prisma |
 | tool | git, docker, webpack, vite, jest |
-
 ### Adding Learnings
-
 When you discover something useful while working with a skill, add it as a learning:
 \`\`\`
 skill_practice("react", "frontend", ["hooks"], ["useCallback prevents unnecessary re-renders"])
 \`\`\`
-
 ### Discovering Skills
-
 Use \`skill_discover\` to auto-detect skills from project dependencies (package.json, etc.)
-
+### Suggesting Skills for Tasks
+**IMPORTANT:** When user asks about skills for a task, use \`skill_suggest\` tool - do NOT search project files!
+Examples of when to use \`skill_suggest\`:
+- "hangi skiller gerekli" / "what skills are needed"
+- "uygun skiller var mı" / "are there suitable skills"
+- "bu görev için ne bilmem lazım" / "what do I need to know for this task"
+- "react projesi için skiller" / "skills for react project"
+\`\`\`
+skill_suggest({ task: "react component with state management" })
+skill_suggest({ task: "nodejs api with postgresql" })
+skill_suggest({ task: "python data analysis" })
+\`\`\`
+This tool:
+1. Checks your tracked skills (with experience and learnings)
+2. Suggests new skills from built-in database
+3. Returns relevant skills for the task description
+</skill_tracking>
+<session_protocol>
 ## Session Protocol
-
 **At the start of each session:** Call memory_read to load stored fragments.
-`;
+</session_protocol>
+</system_prompt>`;
 
 // Create MCP server instance
 const server = new Server(
