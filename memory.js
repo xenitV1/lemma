@@ -223,6 +223,10 @@ const TOOLS = [
           type: "string",
           description: "Category: frontend, backend, tool, language, database",
         },
+        description: {
+          type: "string",
+          description: "Detailed description, manual, or protocols for the skill. Optional.",
+        },
         contexts: {
           type: "array",
           items: { type: "string" },
@@ -235,6 +239,38 @@ const TOOLS = [
         },
       },
       required: ["skill", "category", "contexts", "learnings"],
+    },
+  },
+  {
+    name: "skill_create",
+    description: "Definition mode: Create a new skill with a detailed manual, mission, and protocols. Use this to establish a reusable framework for a specific technology or methodology.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        skill: {
+          type: "string",
+          description: "Skill name (e.g., 'X Viral Growth Engine', 'TDD Workflow')",
+        },
+        category: {
+          type: "string",
+          description: "Category: frontend, backend, tool, language, database",
+        },
+        description: {
+          type: "string",
+          description: "The full manual, protocols, mission, and templates for this skill.",
+        },
+        contexts: {
+          type: "array",
+          items: { type: "string" },
+          description: "Initial contexts (optional).",
+        },
+        learnings: {
+          type: "array",
+          items: { type: "string" },
+          description: "Initial learnings (optional).",
+        },
+      },
+      required: ["skill", "category", "description"],
     },
   },
   {
@@ -538,7 +574,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const filtered = category
           ? skills.getSkillsByCategory(allSkills, category)
           : allSkills;
-        
+
         const formatted = skills.formatSkillsForLLM(filtered);
         return {
           content: [{ type: "text", text: formatted }],
@@ -548,6 +584,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "skill_practice": {
         const skillName = args?.skill;
         const category = args?.category;
+        const description = args?.description || "";
         const contexts = args?.contexts || [];
         const learnings = args?.learnings || [];
 
@@ -559,13 +596,47 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         const allSkills = skills.loadSkills();
-        const updated = skills.practiceSkill(allSkills, skillName, category, contexts, learnings);
+        const updated = skills.practiceSkill(allSkills, skillName, category, description, contexts, learnings);
         skills.saveSkills(allSkills);
 
         const isNew = updated.usage_count === 1;
         const action = isNew ? "Created" : "Updated";
         return {
           content: [{ type: "text", text: `${action} skill "${updated.skill}" (${updated.category}): ${updated.usage_count}x usage` }],
+        };
+      }
+
+      case "skill_create": {
+        const skillName = args?.skill;
+        const category = args?.category;
+        const description = args?.description;
+        const contexts = args?.contexts || [];
+        const learnings = args?.learnings || [];
+
+        if (!skillName || !category || !description) {
+          return {
+            content: [{ type: "text", text: "Error: 'skill', 'category', and 'description' parameters are required" }],
+            isError: true,
+          };
+        }
+
+        const allSkills = skills.loadSkills();
+        const existing = skills.findSkill(allSkills, skillName);
+
+        if (existing) {
+          existing.description = description;
+          skills.saveSkills(allSkills);
+          return {
+            content: [{ type: "text", text: `Updated manual for existing skill "${existing.skill}" (${existing.category})` }],
+          };
+        }
+
+        const newSkill = skills.createSkill(skillName, category, description, contexts, learnings);
+        allSkills.push(newSkill);
+        skills.saveSkills(allSkills);
+
+        return {
+          content: [{ type: "text", text: `Created new manager skill "${newSkill.skill}" (${newSkill.category}) with a detailed manual.` }],
         };
       }
 
@@ -581,7 +652,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           try {
             const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
             const deps = { ...pkg.dependencies, ...pkg.devDependencies };
-            
+
             // Map common packages to skills
             const packageToSkill = {
               "react": { skill: "react", category: "frontend" },
@@ -624,7 +695,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         for (const { skill, category } of discovered) {
           const existing = skills.findSkill(allSkills, skill);
           if (!existing) {
-            skills.practiceSkill(allSkills, skill, category);
+            skills.practiceSkill(allSkills, skill, category, "");
             registered.push(`${skill} (${category})`);
           }
         }
@@ -643,7 +714,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "skill_suggest": {
         const task = args?.task;
-        
+
         if (!task) {
           return {
             content: [{ type: "text", text: "Error: 'task' parameter is required" }],
@@ -654,7 +725,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const allSkills = skills.loadSkills();
         const result = skills.suggestSkills(task, allSkills);
         const formatted = skills.formatSuggestions(result);
-        
+
         return {
           content: [{ type: "text", text: formatted }],
         };

@@ -246,18 +246,20 @@ Yetenek kullanımını kaydet - kullanım sayısını artırır, son_kullanım t
 **Parametreler:**
 - `skill` (string, zorunlu): Yetenek adı (örn. "react", "python", "git")
 - `category` (string, zorunlu): Kategori: frontend, backend, tool, language, database
-- `contexts` (string dizisi, opsiyonel): Ek bağlamlar (örn. ["hooks", "state"])
-- `learnings` (string dizisi, opsiyonel): Kullanım sırasında keşfedilen yeni öğrenimler
+- `description` (string, opsiyonel): Yetenek için rehber/manuel. Boşsa güncellenir.
+- `contexts` (string dizisi, zorunlu): Ek bağlamlar (örn. ["hooks", "state"])
+- `learnings` (string dizisi, zorunlu): Kullanım sırasında keşfedilen yeni öğrenimler
 
-**Örnek:**
-```json
-{
-  "skill": "react",
-  "category": "frontend",
-  "contexts": ["hooks", "useCallback"],
-  "learnings": ["useCallback gereksiz yeniden render'ları önler"]
-}
-```
+### `skill_create`
+
+**Yeni:** Bir yeteneği detaylı bir rehber, misyon ve protokollerle birlikte tanımlamak için kullanılır. Bu, bir teknolojiyi sadece takip etmek yerine, onu nasıl kullanacağınıza dair bir "yönetici beceri" çerçevesi oluşturmanızı sağlar.
+
+**Parametreler:**
+- `skill` (string, zorunlu): Yetenek adı (örn. "X Viral Büyüme Motoru")
+- `category` (string, zorunlu): Kategori
+- `description` (string, zorunlu): Yeteneğin tam kılavuzu, protokolleri ve şablonları.
+- `contexts` (string dizisi, opsiyonel): İlk bağlamlar.
+- `learnings` (string dizisi, opsiyonel): İlk öğrenimler.
 
 ### `skill_discover`
 
@@ -284,6 +286,7 @@ Yetenekler JSONL formatında şu adreste saklanır:
   "id": "s1a2b3",
   "skill": "react",
   "category": "frontend",
+  "description": "React bileşenleri geliştirme ve state yönetimi rehberi...",
   "usage_count": 45,
   "last_used": "2026-03-06",
   "contexts": ["hooks", "jsx", "state"],

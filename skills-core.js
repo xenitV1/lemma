@@ -29,15 +29,17 @@ function getToday() {
  * Create a new skill object
  * @param {string} skill - Skill name (e.g., "react", "python")
  * @param {string} category - Category (frontend, backend, tool, language, database)
+ * @param {string} description - Detailed description or manual for the skill
  * @param {string[]} contexts - Initial contexts (optional)
  * @param {string[]} learnings - Initial learnings (optional)
  * @returns {object} Skill object
  */
-export function createSkill(skill, category, contexts = [], learnings = []) {
+export function createSkill(skill, category, description = "", contexts = [], learnings = []) {
   return {
     id: generateSkillId(),
     skill: skill.toLowerCase().trim(),
     category: category.toLowerCase().trim(),
+    description: description.trim(),
     usage_count: 1,
     last_used: getToday(),
     contexts: contexts.map(c => c.toLowerCase().trim()).filter(Boolean),
@@ -102,24 +104,30 @@ export function findSkill(skills, skillName) {
  * @param {Array<object>} skills - Array of skill objects (will be mutated)
  * @param {string} skillName - Skill name
  * @param {string} category - Category (only used if creating new)
+ * @param {string} description - Description (only used if creating new or updating empty)
  * @param {string[]} newContexts - Additional contexts to add
  * @param {string[]} newLearnings - Additional learnings to add
  * @returns {object} The updated or created skill
  */
-export function practiceSkill(skills, skillName, category, newContexts = [], newLearnings = []) {
+export function practiceSkill(skills, skillName, category, description = "", newContexts = [], newLearnings = []) {
   let skill = findSkill(skills, skillName);
-  
+
   if (!skill) {
     // Create new skill
-    skill = createSkill(skillName, category, newContexts, newLearnings);
+    skill = createSkill(skillName, category, description, newContexts, newLearnings);
     skills.push(skill);
     return skill;
   }
-  
+
   // Update existing skill
   skill.usage_count += 1;
   skill.last_used = getToday();
-  
+
+  // Update description if it was empty and new one is provided
+  if (!skill.description && description) {
+    skill.description = description.trim();
+  }
+
   // Merge new contexts (deduplicated, case-insensitive)
   const existingContexts = new Set(skill.contexts.map(c => c.toLowerCase()));
   for (const ctx of newContexts) {
@@ -129,7 +137,7 @@ export function practiceSkill(skills, skillName, category, newContexts = [], new
       existingContexts.add(normalized);
     }
   }
-  
+
   // Merge new learnings (deduplicated by exact match)
   const existingLearnings = new Set(skill.learnings);
   for (const learning of newLearnings) {
@@ -139,7 +147,7 @@ export function practiceSkill(skills, skillName, category, newContexts = [], new
       existingLearnings.add(trimmed);
     }
   }
-  
+
   return skill;
 }
 
@@ -177,12 +185,12 @@ export function formatSkillsForLLM(skills) {
   }
 
   const sorted = getTopSkills(skills, 30);
-  
+
   const lines = sorted.map(skill => {
-    const contextsStr = skill.contexts.length > 0 
+    const contextsStr = skill.contexts.length > 0
       ? ` [${skill.contexts.slice(0, 5).join(", ")}${skill.contexts.length > 5 ? "..." : ""}]`
       : "";
-    const learningsCount = skill.learnings.length > 0 
+    const learningsCount = skill.learnings.length > 0
       ? ` (${skill.learnings.length} learnings)`
       : "";
     return `[${skill.category}] ${skill.skill}: ${skill.usage_count}x (last: ${skill.last_used})${contextsStr}${learningsCount}`;
@@ -252,19 +260,19 @@ export function suggestSkills(taskDescription, existingSkills = []) {
   const desc = taskDescription.toLowerCase();
   const suggestions = [];
   const seen = new Set();
-  
+
   // Get all skill definitions
   const allSkillDefs = Object.values(TASK_SKILL_MAP).flat();
-  
+
   // Check each skill definition against task description
   for (const skillDef of allSkillDefs) {
     if (seen.has(skillDef.skill)) continue;
-    
+
     // Check if skill name or keywords match
-    const matches = 
+    const matches =
       desc.includes(skillDef.skill) ||
       skillDef.keywords.some(kw => desc.includes(kw));
-    
+
     if (matches) {
       seen.add(skillDef.skill);
       const existing = existingSkills.find(s => s.skill === skillDef.skill);
@@ -278,12 +286,12 @@ export function suggestSkills(taskDescription, existingSkills = []) {
       });
     }
   }
-  
+
   // Also check tracked skills that might not be in TASK_SKILL_MAP
   // Match by skill name and contexts
   for (const existing of existingSkills) {
     if (seen.has(existing.skill)) continue;
-    
+
     // Check if skill name matches
     if (desc.includes(existing.skill)) {
       seen.add(existing.skill);
@@ -299,7 +307,7 @@ export function suggestSkills(taskDescription, existingSkills = []) {
       });
       continue;
     }
-    
+
     // Check if any context matches
     if (existing.contexts.some(ctx => desc.includes(ctx))) {
       seen.add(existing.skill);
@@ -315,11 +323,11 @@ export function suggestSkills(taskDescription, existingSkills = []) {
       });
     }
   }
-  
+
   // Separate into categories
   const tracked = suggestions.filter(s => s.tracked);
   const missing = suggestions.filter(s => !s.tracked);
-  
+
   return {
     relevant: tracked,
     missing: missing,
@@ -336,7 +344,7 @@ export function suggestSkills(taskDescription, existingSkills = []) {
 export function formatSuggestions(result) {
   let output = `=== SKILL SUGGESTIONS ===\n`;
   output += `${result.summary}\n\n`;
-  
+
   if (result.relevant.length > 0) {
     output += `TRACKED (you have experience):\n`;
     for (const s of result.relevant) {
@@ -353,7 +361,7 @@ export function formatSuggestions(result) {
     }
     output += `\n`;
   }
-  
+
   if (result.missing.length > 0) {
     output += `SUGGESTED (not tracked yet):\n`;
     for (const s of result.missing) {
@@ -365,12 +373,12 @@ export function formatSuggestions(result) {
     }
     output += `\n`;
   }
-  
+
   if (result.suggested.length === 0) {
     output += `No relevant skills found for this task.\n`;
     output += `Try describing the task with more specific terms.\n`;
   }
-  
+
   output += `========================`;
   return output;
 }
@@ -389,18 +397,22 @@ export function formatSkillDetail(skill) {
   detail += `Category: ${skill.category}\n`;
   detail += `Usage Count: ${skill.usage_count}\n`;
   detail += `Last Used: ${skill.last_used}\n`;
-  
+
+  if (skill.description) {
+    detail += `\n=== DESCRIPTION / PROTOCOLS ===\n${skill.description}\n===============================\n`;
+  }
+
   if (skill.contexts.length > 0) {
     detail += `Contexts: ${skill.contexts.join(", ")}\n`;
   }
-  
+
   if (skill.learnings.length > 0) {
     detail += `Learnings:\n`;
     for (const l of skill.learnings) {
       detail += `  - ${l}\n`;
     }
   }
-  
+
   detail += `====================`;
   return detail;
 }
