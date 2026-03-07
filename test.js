@@ -373,8 +373,8 @@ async function importSkillsWithOverride(skillsFilePath) {
 // Test: createSkill creates valid object
 async function test_skills_createSkill() {
   const skills = await importSkillsWithOverride(path.join(tempDir, "skills-create.jsonl"));
-  const skill = skills.createSkill("React", "Frontend", ["hooks", "jsx"], ["useCallback önemli"]);
-  
+  const skill = skills.createSkill("React", "Frontend", "React library manual", ["hooks", "jsx"], ["useCallback önemli"]);
+
   assert.ok(skill.id.startsWith("s"), "ID should start with 's'");
   assert.strictEqual(skill.skill, "react", "Skill name should be lowercase");
   assert.strictEqual(skill.category, "frontend", "Category should be lowercase");
@@ -402,13 +402,13 @@ async function test_skills_practiceSkill() {
 async function test_skills_mergeContextsLearnings() {
   const skills = await importSkillsWithOverride(path.join(tempDir, "skills-merge.jsonl"));
   const allSkills = [];
-  
+
   // Create with initial contexts/learnings
-  skills.practiceSkill(allSkills, "React", "frontend", ["hooks"], ["learning1"]);
-  
+  skills.practiceSkill(allSkills, "React", "frontend", "React manual", ["hooks"], ["learning1"]);
+
   // Add more contexts/learnings
-  const updated = skills.practiceSkill(allSkills, "React", "frontend", ["jsx", "hooks"], ["learning2"]);
-  
+  const updated = skills.practiceSkill(allSkills, "React", "frontend", "", ["jsx", "hooks"], ["learning2"]);
+
   assert.strictEqual(updated.contexts.length, 2, "Should have 2 unique contexts");
   assert.strictEqual(updated.learnings.length, 2, "Should have 2 unique learnings");
   assert.ok(updated.contexts.includes("hooks"), "Should have hooks context");

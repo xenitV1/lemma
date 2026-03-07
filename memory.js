@@ -17,6 +17,14 @@ const SYSTEM_PROMPT = `<system_prompt>
 Your persistent memory layer. Works like the human brain: important fragments are kept, frequently accessed ones grow stronger, unused ones fade away.
 </intro>
 
+<tool_focus_rule>
+## Tool Focus Rule (CRITICAL)
+When you see tool names (memory_read, memory_check, skill_get, etc.) or "Lemma" mentioned:
+- Focus ONLY on the MCP tool functionality
+- Do NOT mix with conversation context about the "Lemma project" itself
+- Execute the tool operation, don't discuss the project
+</tool_focus_rule>
+
 <core_workflow>
 ## Core Workflow (FOLLOW THIS ORDER)
 1. **Session start** → Call memory_read
@@ -47,13 +55,14 @@ Distilled: "5 memory tools: read, add, update, forget, list"
 <skill_tracking>
 ## Skill Tracking
 **Memory vs Skill:**
-- Memory = static knowledge ("React uses virtual DOM")
-- Skill = experience tracking ("Used React 45x, learned useCallback prevents re-renders")
+- Memory = Short, static knowledge fragments ("React uses virtual DOM").
+- Skill = Procedural manuals, protocols, and experience tracking. Use Skills for complex frameworks, "ways of working", or algorithms that act as a blueprint.
 
-**When using a technology:**
-\`\`\`
-skill_practice({ skill: "react", category: "frontend", contexts: ["hooks"], learnings: [] })
-\`\`\`
+**Manager Skills (Definition Mode):**
+When learning a complex methodology (e.g., "X Viral Growth Engine", "TDD Workflow"), use \`skill_create\` to store the Full Manual, Mission, and Protocols.
+
+**Skill Practice:**
+Record usage via \`skill_practice\` to increment experience counters and save specific execution learnings.
 
 **Categories:** frontend | backend | language | database | tool
 
