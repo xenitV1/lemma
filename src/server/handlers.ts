@@ -436,7 +436,7 @@ export async function handleSessionStart(args?: SessionStartArgs): Promise<ToolR
   const taskType = args?.task_type;
   const technologies = args?.technologies || [];
   const initialApproach = args?.initial_approach || null;
-  const project = args?.project || core.detectProject() || null;
+  const project = core.resolveProjectScope(args?.project);
 
   logger.flow("session_start", "start", { task_type: taskType, technologies, has_initial_approach: !!initialApproach, project });
 
@@ -1083,10 +1083,10 @@ export async function handleMemoryAdd(args?: MemoryAddArgs): Promise<ToolResult>
   const fragment = args?.fragment;
   const title = args?.title || null;
   const description = args?.description || null;
-  // Project scope: explicit `project` wins. If omitted, fall back to the
-  // detected project (cwd basename) so memory is isolated per project by
-  // default. Pass `project: null` explicitly to force global scope.
-  const project = args?.project === undefined ? (core.detectProject() || null) : args.project;
+  // Project scope: resolve through the single chokepoint so the stored key is
+  // always the canonical (basename + lowercase) form, or null for global.
+  // Omitted -> detected project; literal "global" -> null.
+  const project = core.resolveProjectScope(args?.project);
   const source = (args?.source || "ai") as "user" | "ai";
   const validTypes: FragmentType[] = ["fact", "pattern", "lesson", "warning", "context"];
   const fragmentType = validTypes.includes((args?.type || "") as FragmentType)
@@ -1444,10 +1444,9 @@ export async function handleMemoryMerge(args?: MemoryMergeArgs): Promise<ToolRes
   const ids = args?.ids;
   const title = args?.title;
   const fragment = args?.fragment;
-  // Project scope: explicit `project` wins. If omitted, fall back to the
-  // detected project (cwd basename) so memory is isolated per project by
-  // default. Pass `project: null` explicitly to force global scope.
-  const project = args?.project === undefined ? (core.detectProject() || null) : args.project;
+  // Project scope: resolve through the single chokepoint so the merged fragment
+  // is filed under the canonical key. Omitted -> detected project; "global" -> null.
+  const project = core.resolveProjectScope(args?.project);
 
   logger.flow("memory_merge", "start", { ids, title, project });
 

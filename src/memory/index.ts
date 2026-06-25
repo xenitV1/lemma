@@ -1,6 +1,8 @@
 export {
   generateId,
   detectProject,
+  normalizeProjectKey,
+  resolveProjectScope,
   createFragment,
   findSimilarFragment,
   loadMemory,

@@ -345,12 +345,12 @@ describe("migrateFromJsonl", () => {
 
 describe("runMigrations — V2 schema_version tracking", () => {
   test("applies V1 then V2 on a fresh DB and records schema_version 2", () => {
-    const tmpDb = new LemmaDB(path.join(TMPDIR, "fresh-v2.db"));
+    const tmpDb = new LemmaDB(path.join(TMPDIR, "fresh-migrated.db"));
     runMigrations(tmpDb);
     const versions = tmpDb
       .prepareCached("SELECT version FROM schema_version ORDER BY version")
       .all() as { version: number }[];
-    assert.deepEqual(versions.map(v => v.version), [1, 2]);
+    assert.deepEqual(versions.map(v => v.version), [1, 2, 3]);
     const tables = tmpDb
       .prepareCached("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('session_attempts','improvement_suggestions')")
       .all() as { name: string }[];
@@ -358,12 +358,12 @@ describe("runMigrations — V2 schema_version tracking", () => {
     tmpDb.close();
   });
 
-  test("V2 is idempotent — re-running runMigrations is a no-op", () => {
+  test("migrations are idempotent — re-running runMigrations is a no-op", () => {
     const tmpDb = new LemmaDB(path.join(TMPDIR, "idempotent.db"));
     runMigrations(tmpDb);
     runMigrations(tmpDb);
     const versions = tmpDb.prepareCached("SELECT version FROM schema_version").all() as { version: number }[];
-    assert.equal(versions.length, 2);
+    assert.equal(versions.length, 3);
     const attemptTables = tmpDb
       .prepareCached("SELECT count(*) as c FROM sqlite_master WHERE type='table' AND name='session_attempts'")
       .get() as { c: number };

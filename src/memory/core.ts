@@ -35,6 +35,54 @@ export function detectProject(): string | null {
   }
 }
 
+/**
+ * Canonical project key for an arbitrary caller-supplied value: trimmed +
+ * lowercased, with any path (forward or backslash) collapsed to its basename.
+ * Mirrors detectProject() so a stored key and a recall filter always agree,
+ * regardless of whether the caller passed "Lemma", "/home/x/Projeler/Lemma",
+ * or "lemma".
+ *
+ * Returns null for non-strings, empty, or whitespace-only input.
+ */
+export function normalizeProjectKey(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  let p = raw.trim();
+  if (!p) return null;
+  p = p.replace(/\\/g, "/").replace(/\/+$/, "");
+  if (p.includes("/")) {
+    const segs = p.split("/").filter(Boolean);
+    p = segs.length > 0 ? segs[segs.length - 1] : "";
+  }
+  p = p.trim().toLowerCase();
+  return p || null;
+}
+
+/**
+ * Resolve the project scope a memory/session should be filed under.
+ *
+ * - undefined (caller omitted it) -> auto-detect from cwd basename. This is the
+ *   default that makes project isolation "just work".
+ * - null (caller passed it explicitly) -> global (null). Explicit null is the
+ *   documented request for cross-project scope.
+ * - a non-empty string -> normalized via normalizeProjectKey (basename + lowercase).
+ * - a value that normalizes to empty -> treated as omitted (auto-detect).
+ * - the literal "global" (case-insensitive) -> null. Callers use "global" to
+ *   request global scope; without this it would be filed under a bogus project
+ *   literally named "global" and vanish from project-scoped views.
+ *
+ * This is the single chokepoint for write-side project resolution, so handlers
+ * never store a divergent key. Pair with a schema that has NO default on
+ * `project`, so clients send undefined (not null) when the caller omits it.
+ */
+export function resolveProjectScope(explicit: unknown): string | null {
+  if (explicit === null) return null;
+  if (explicit === undefined) return detectProject() || null;
+  const norm = normalizeProjectKey(explicit);
+  if (norm === null) return detectProject() || null;
+  if (norm === "global") return null;
+  return norm;
+}
+
 function generateDescription(fragment: string, title: string): string {
   if (fragment.length <= 80) {
     return fragment;
@@ -681,7 +729,7 @@ export function addFragmentToDb(fragment: MemoryFragment): { id: number; legacy_
     fragment.fragment,
     fragment.description || null,
     fragment.type || "fact",
-    fragment.project || null,
+    normalizeProjectKey(fragment.project),
     fragment.source || "ai",
     fragment.confidence ?? 0.5,
     fragment.distill_candidate ? 1 : 0,

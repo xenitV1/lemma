@@ -265,8 +265,7 @@ export const TOOLS: ToolDefinition[] = [
         },
         project: {
           type: ["string", "null"],
-          description: "Project scope (null = global, string = project-specific). Use current project name for project-specific info.",
-          default: null,
+          description: "Project scope. Omit to auto-file under the current project (detected from cwd). Pass 'global' or null for cross-project scope.",
         },
         source: {
           type: "string",
@@ -408,8 +407,7 @@ export const TOOLS: ToolDefinition[] = [
         },
         project: {
           type: ["string", "null"],
-          description: "Project scope (null = global, string = project-specific). Optional.",
-          default: null,
+          description: "Project scope. Omit to auto-file under the current project (detected from cwd). Pass 'global' or null for cross-project scope. Optional.",
         },
       },
       required: ["ids", "title", "fragment"],

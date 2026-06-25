@@ -257,4 +257,23 @@ CREATE TABLE IF NOT EXISTS improvement_suggestions (
 CREATE INDEX IF NOT EXISTS idx_suggestions_status ON improvement_suggestions(status);
 `;
 
-export const MIGRATIONS: [number, string][] = [[1, SCHEMA_V1], [2, SCHEMA_V2]];
+export const SCHEMA_V3 = `
+-- Normalize stored project keys so per-project isolation actually works.
+-- Fixes historical data written before write-side normalization: mixed-case
+-- duplicates ("Ailyro" vs "ailyro"), full paths stored as project
+-- ("/home/x/Projeler/scroll/mobil"), and the literal string "global" used to
+-- mean global scope. Applied once, gated by schema_version. Idempotent: a
+-- second run is a no-op (already-lowercased, no slash, no "global").
+
+UPDATE memories SET project = replace(project, '\\', '/') WHERE project LIKE '%\\%';
+UPDATE memories SET project = replace(project, rtrim(project, replace(project, '/', '')), '') WHERE project LIKE '%/%';
+UPDATE memories SET project = lower(project) WHERE project IS NOT NULL;
+UPDATE memories SET project = NULL WHERE project = 'global';
+
+UPDATE sessions SET project = replace(project, '\\', '/') WHERE project LIKE '%\\%';
+UPDATE sessions SET project = replace(project, rtrim(project, replace(project, '/', '')), '') WHERE project LIKE '%/%';
+UPDATE sessions SET project = lower(project) WHERE project IS NOT NULL;
+UPDATE sessions SET project = NULL WHERE project = 'global';
+`;
+
+export const MIGRATIONS: [number, string][] = [[1, SCHEMA_V1], [2, SCHEMA_V2], [3, SCHEMA_V3]];

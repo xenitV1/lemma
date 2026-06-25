@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.17.1] - 2026-06-25
+
+Project-key normalization patch. Memory was still being filed under divergent keys (mixed case, full paths, the literal string `"global"`) despite the 0.16.0 project-isolation work, because `addFragmentToDb` bypassed the normalization that only `addMemory` had. Per-project recall silently missed memories filed under a sibling key — the "current project filter didn't recognize the project" symptom.
+
+### Fixed
+- **Write-side project normalization (root cause).** `memory_add` / `memory_merge` / `session_start` now resolve the project scope through a single chokepoint (`resolveProjectScope`): omitted → detected project (`basename(cwd)`); explicit `null` → global; explicit string → canonicalized (basename + trim + lowercase); the literal `"global"` → global. `addFragmentToDb` also normalizes defensively, so no write path can store a raw key. Fixes the split-key problem caused by values like `Ailyro` vs `ailyro`, `/home/x/Projeler/foo/bar`, and `project: "global"`.
+- **`project` schema `default: null` removed** from `memory_add` / `memory_merge`. The default caused MCP clients to auto-send `null` for an omitted field, silently filing project-scoped memories as global. Omitting the field now means "auto-detect".
+
+### Added
+- **`SCHEMA_V3` startup migration** (idempotent, version-gated): backslash → slash → basename → lowercase → `global` → NULL, applied to both `memories` and `sessions`. Heals historical dirty keys on the next server start for all users — `Ailyro` + `ailyro` merge, full paths collapse to their basename, `"global"` becomes true global (NULL). Re-running is a no-op.
+
+### Known limitation
+- Memories already stored as `NULL` (global) from the pre-0.17.1 `default:null` trap cannot be auto-reassigned to their original project (the project is not recoverable from storage). They remain global; reassign manually via `memory_update` where the intended project is obvious from content.
+
+### Verified
+- `npm run typecheck`
+- `npm test` (721/721, +17 new)
+- `npm run build`
+- Live DB healing observed: `schema_version` 2 → 3, zero residual dirty keys.
+
 ## [0.17.0] - 2026-06-25
 
 MCP usability + release hardening. Tool names are short again, SDK initialize negotiation is back on the standard path, and the stdio server is quieter and more reliable for clients that decide when to auto-use Lemma.
