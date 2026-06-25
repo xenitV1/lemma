@@ -173,13 +173,19 @@ export function saveSessions(sessions: Session[], options: { force?: boolean } =
           s.project ?? null,
         );
 
+        db.prepareCached("DELETE FROM session_guide_usage WHERE session_id = ?").run(s.session_id);
         if (s.guides_used && s.guides_used.length > 0) {
-          db.prepareCached("DELETE FROM session_guide_usage WHERE session_id = ?").run(s.session_id);
+          const findGuide = db.prepareCached("SELECT id FROM guides WHERE guide = ? COLLATE NOCASE");
           const insertGuide = db.prepareCached(
-            "INSERT OR IGNORE INTO session_guide_usage (session_id, guide_id) VALUES (?, (SELECT id FROM guides WHERE guide = ? COLLATE NOCASE))"
+            "INSERT OR IGNORE INTO session_guide_usage (session_id, guide_id) VALUES (?, ?)"
           );
           for (const guideName of s.guides_used) {
-            insertGuide.run(s.session_id, guideName);
+            const guideRow = findGuide.get(guideName) as { id: number } | undefined;
+            if (!guideRow) {
+              logger.warn("Skipping session guide link for missing guide", { session_id: s.session_id, guide: guideName });
+              continue;
+            }
+            insertGuide.run(s.session_id, guideRow.id);
           }
         }
 
@@ -190,14 +196,20 @@ export function saveSessions(sessions: Session[], options: { force?: boolean } =
         if (s.memories_created && s.memories_created.length > 0) {
           allMemoryIds.push({ type: "created", ids: s.memories_created });
         }
+        db.prepareCached("DELETE FROM session_memory_links WHERE session_id = ?").run(s.session_id);
         if (allMemoryIds.length > 0) {
-          db.prepareCached("DELETE FROM session_memory_links WHERE session_id = ?").run(s.session_id);
+          const findMemory = db.prepareCached("SELECT id FROM memories WHERE legacy_id = ?");
           const insertLink = db.prepareCached(
-            "INSERT OR IGNORE INTO session_memory_links (session_id, memory_id, interaction_type) VALUES (?, (SELECT id FROM memories WHERE legacy_id = ?), ?)"
+            "INSERT OR IGNORE INTO session_memory_links (session_id, memory_id, interaction_type) VALUES (?, ?, ?)"
           );
           for (const entry of allMemoryIds) {
             for (const memId of entry.ids) {
-              insertLink.run(s.session_id, memId, entry.type);
+              const memoryRow = findMemory.get(memId) as { id: number } | undefined;
+              if (!memoryRow) {
+                logger.warn("Skipping session memory link for missing memory", { session_id: s.session_id, memory_id: memId, type: entry.type });
+                continue;
+              }
+              insertLink.run(s.session_id, memoryRow.id, entry.type);
             }
           }
         }

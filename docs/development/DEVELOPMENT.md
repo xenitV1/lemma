@@ -11,7 +11,7 @@ npm install
 ## Commands
 
 ```bash
-npm test            # Run all 614 tests (node --test)
+npm test            # Run all test files (node --test)
 npm run typecheck   # TypeScript type checking
 npm run build       # Compile to dist/
 lemma -lib          # Library Mode (knowledge base snapshot)
@@ -30,8 +30,7 @@ src/
 │   ├── schema.ts         # Schema definitions + migrations
 │   ├── migration.ts      # Migration runner, JSONL → SQLite migration
 │   ├── memory-store.ts   # Targeted SQL: addMemory, updateMemory, searchMemories, etc.
-│   ├── library-store.ts  # Library Mode: snapshot collection, analysis signals, formatting
-│   └── guides-store.ts   # Guide SQL operations
+│   └── library-store.ts  # Library Mode: snapshot collection, analysis signals, formatting
 ├── memory/
 │   ├── core.ts           # Core memory logic, decay, search, dedup, relations
 │   ├── config.ts         # User configuration loader
@@ -59,7 +58,7 @@ src/
 ├── sessions/
 │   ├── core.ts           # Formal session lifecycle (session_start/end)
 │   └── virtual.ts        # Virtual session auto-tracking (idle detection)
-tests/                    # 614 tests, node:test + tsx
+tests/                    # node:test + tsx
 ├── memory/               # 14 test files
 ├── guides/               # 6 test files
 ├── sessions/             # 2 test files
@@ -102,10 +101,10 @@ The prompt layer teaches the LLM:
 
 The `src/intelligence/` module provides autonomous background intelligence:
 
-- **Conflict Detection** (`conflict.ts`): Negation pattern matching + topic overlap scoring. Runs automatically on every `lemma_memory_add`. Full scans available via `lemma_conflict_scan` tool.
-- **Proactive Suggestions** (`proactive.ts`): Detects recurring patterns, distill candidates, stale memories, low-performing guides. Runs automatically after `lemma_memory_add` and `lemma_guide_practice`. Full analysis via `lemma_proactive_analysis` tool.
-- **Project Analytics** (`session-analytics.ts`): Cross-session health scoring, knowledge growth rate, skill coverage trends. Via `lemma_project_analytics` tool.
-- **Semantic Search** (`semantic.ts`): TF-IDF vector space model with cosine similarity. Via `lemma_semantic_search` tool.
+- **Conflict Detection** (`conflict.ts`): Negation pattern matching + topic overlap scoring. Runs automatically on every `memory_add`. Full scans available via `conflict_scan` tool.
+- **Proactive Suggestions** (`proactive.ts`): Detects recurring patterns, distill candidates, stale memories, low-performing guides. Runs automatically after `memory_add` and `guide_practice`. Full analysis via `proactive_analysis` tool.
+- **Project Analytics** (`session-analytics.ts`): Cross-session health scoring, knowledge growth rate, skill coverage trends. Via `project_analytics` tool.
+- **Semantic Search** (`semantic.ts`): TF-IDF vector space model with cosine similarity. Via `semantic_search` tool.
 
 ### Memory Lifecycle
 
@@ -117,7 +116,7 @@ The `src/intelligence/` module provides autonomous background intelligence:
 
 ### Virtual Sessions
 
-Automatic session correlation without explicit `lemma_session_start`/`lemma_session_end`:
+Automatic session correlation without explicit `session_start`/`session_end`:
 
 - Auto-starts on first tool call
 - Idle detection: 10s mark → finalize on next call if >30s idle
@@ -128,9 +127,9 @@ Automatic session correlation without explicit `lemma_session_start`/`lemma_sess
 ### Response Hooks
 
 Tool responses include contextual `SUGGESTED ACTIONS`:
-- Topic overlap → `lemma_memory_relate`
-- Type `pattern`/`lesson` → `lemma_guide_distill`
-- Conflict detected → `lemma_memory_relate` with `contradicts`
+- Topic overlap → `memory_relate`
+- Type `pattern`/`lesson` → `guide_distill`
+- Conflict detected → `memory_relate` with `contradicts`
 - Proactive suggestions → distill, merge, refine actions
 - Session end → full review with relate + distill + practice suggestions
 
@@ -162,7 +161,7 @@ All data in `~/.lemma/`:
 Tests use Node.js built-in test runner (`node:test`) with `tsx` for TypeScript:
 
 ```bash
-npm test                                    # All 614 tests
+npm test                                    # All test files
 npm run test:memory                         # Memory tests only
 npm run test:guides                         # Guide tests only
 npm run test:sessions                       # Session tests only
@@ -173,7 +172,7 @@ npm run test:server                         # Server tests only
 
 ## Adding New Features
 
-New tools can be added as needed. The current tool count is 26 (24 core memory/guide/session tools + `lemma_session_attempt` and `lemma_suggestion_respond` for the reasoning-continuity self-critique loop). See [ROADMAP.md](./ROADMAP.md) for planned features and [HANDLERS-REFACTOR.md](./HANDLERS-REFACTOR.md) for the ongoing targeted SQL migration.
+New tools can be added as needed. The current tool count is 26 (24 core memory/guide/session tools + `session_attempt` and `suggestion_respond` for the reasoning-continuity self-critique loop).
 
 ## Dependencies
 

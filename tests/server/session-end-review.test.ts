@@ -53,7 +53,7 @@ describe("session_end review hook", () => {
       fragment: "Test fragment about caching strategies",
       title: "Caching strategies",
     });
-    recordToolCall("lemma_memory_add", {
+    recordToolCall("memory_add", {
       fragment: "Test fragment about caching strategies",
       title: "Caching strategies",
     }, addResult);
@@ -68,7 +68,7 @@ describe("session_end review hook", () => {
     const frag = seedFragment("Important knowledge about database indexing");
     await handleSessionStart({ task_type: "research" });
     const readResult = await handleMemoryRead({ id: frag.id });
-    recordToolCall("lemma_memory_read", { id: frag.id }, readResult);
+    recordToolCall("memory_read", { id: frag.id }, readResult);
 
     const result = await handleSessionEnd({ outcome: "success" });
     const text = getText(result);
@@ -80,13 +80,13 @@ describe("session_end review hook", () => {
     const frag = seedFragment("Knowledge about REST API design patterns");
     await handleSessionStart({ task_type: "implementation" });
     const readResult = await handleMemoryRead({ id: frag.id });
-    recordToolCall("lemma_memory_read", { id: frag.id }, readResult);
+    recordToolCall("memory_read", { id: frag.id }, readResult);
 
     const addResult = await handleMemoryAdd({
       fragment: "New insight about GraphQL vs REST tradeoffs",
       title: "GraphQL vs REST",
     });
-    recordToolCall("lemma_memory_add", {
+    recordToolCall("memory_add", {
       fragment: "New insight about GraphQL vs REST tradeoffs",
       title: "GraphQL vs REST",
     }, addResult);
@@ -101,13 +101,13 @@ describe("session_end review hook", () => {
     const frag = seedFragment("Important note about TypeScript generics and type inference");
     await handleSessionStart({ task_type: "debugging" });
     const readResult = await handleMemoryRead({ id: frag.id });
-    recordToolCall("lemma_memory_read", { id: frag.id }, readResult);
+    recordToolCall("memory_read", { id: frag.id }, readResult);
 
     const addResult = await handleMemoryAdd({
       fragment: "Discovered that TypeScript conditional types help with type narrowing",
       title: "Conditional types narrowing",
     });
-    recordToolCall("lemma_memory_add", {
+    recordToolCall("memory_add", {
       fragment: "Discovered that TypeScript conditional types help with type narrowing",
       title: "Conditional types narrowing",
     }, addResult);
@@ -123,7 +123,7 @@ describe("session_end review hook", () => {
       fragment: "A reusable pattern for configuring middleware chains",
       title: "Middleware chain pattern",
     });
-    recordToolCall("lemma_memory_add", {
+    recordToolCall("memory_add", {
       fragment: "A reusable pattern for configuring middleware chains",
       title: "Middleware chain pattern",
     }, addResult);

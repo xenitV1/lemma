@@ -269,7 +269,7 @@ export function startVisualizeServer(portArg?: number): Promise<void> {
     server.on("error", (err: NodeJS.ErrnoException) => {
       if (err.code === "EADDRINUSE") {
         console.error(`[Lemma Visualizer] Port ${port} is already in use.`);
-        console.error(`[Lemma Visualizer] Try: lemma --visualize --port ${port + 1}`);
+        console.error(`[Lemma Visualizer] Try: lemma -vis -p ${port + 1}`);
         process.exit(1);
       } else {
         console.error(`[Lemma Visualizer] Server error: ${err.message}`);

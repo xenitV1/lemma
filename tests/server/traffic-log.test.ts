@@ -36,7 +36,7 @@ describe("traffic-log secret redaction", () => {
     logIncoming({
       jsonrpc: "2.0",
       method: "tools/call",
-      params: { name: "lemma_memory_add", arguments: { fragment: "my key is sk-proj-abcdefghijklmnopqrstuvwx" } },
+      params: { name: "memory_add", arguments: { fragment: "my key is sk-proj-abcdefghijklmnopqrstuvwx" } },
       id: 1,
     });
     const line = readTodayLog();
@@ -50,7 +50,7 @@ describe("traffic-log secret redaction", () => {
     logIncoming({
       jsonrpc: "2.0",
       method: "tools/call",
-      params: { name: "lemma_memory_add", arguments: { fragment: longFragment } },
+      params: { name: "memory_add", arguments: { fragment: longFragment } },
       id: 2,
     });
     const line = readTodayLog();

@@ -39,7 +39,7 @@ await withServer(projA, async (c) => {
   console.log(">> instructions 'Your current memory':");
   console.log(extractMemoryIndex(instr));
   const { tools } = await c.listTools();
-  const mr = tools.find(t=>t.name==="lemma_memory_read");
+  const mr = tools.find(t=>t.name==="memory_read");
   console.log("\n>> memory_read tool inject (first 400 chars):");
   console.log(extractInject(mr.description));
 });
@@ -49,7 +49,7 @@ console.log("S2 — SAVE project note in projA (NO explicit project), then REOPE
 console.log("=".repeat(70));
 await withServer(projA, async (c) => {
   // NOTE: no `project` arg — relies on auto-detect (cwd basename = proja)
-  const r = await c.callTool({name:"lemma_memory_add", arguments:{
+  const r = await c.callTool({name:"memory_add", arguments:{
     fragment:"## projA deployment\n### Context\nSpecial deploy step.\n- run npm run build:assets before deploy",
     title:"projA deployment note", type:"lesson"}});
   console.log(">> saved note (no project arg), id:", r.structuredContent?.id);
@@ -60,7 +60,7 @@ await withServer(projA, async (c) => {
   console.log(">> REOPENED projA — instructions 'Your current memory':");
   console.log(extractMemoryIndex(instr));
   const { tools } = await c.listTools();
-  const mr = tools.find(t=>t.name==="lemma_memory_read");
+  const mr = tools.find(t=>t.name==="memory_read");
   const inj = extractInject(mr.description);
   console.log("\n>> REOPENED projA — memory_read inject contains the note?", inj.includes("projA deployment"));
 });
@@ -74,7 +74,7 @@ await withServer(projB, async (c) => {
   console.log(">> projB instructions 'Your current memory':");
   console.log(idx);
   const { tools } = await c.listTools();
-  const mr = tools.find(t=>t.name==="lemma_memory_read");
+  const mr = tools.find(t=>t.name==="memory_read");
   const inj = extractInject(mr.description);
   console.log("\n>> projA note HIDDEN in projB?", !inj.includes("projA deployment"), "| global seed still present?", inj.includes("Task Complexity") || idx.includes("Task") || idx.includes("no saved") === false ? "yes" : "check");
 });

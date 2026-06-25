@@ -256,7 +256,7 @@ describe("Handlers (Integration)", () => {
     test("dispatches memory_read", async () => {
       seedMemory();
       const result = await handlers.handleCallTool({
-        params: { name: "lemma_memory_read", arguments: { project: "testproj" } }
+        params: { name: "memory_read", arguments: { project: "testproj" } }
       });
       assert.ok(!result.isError);
     });

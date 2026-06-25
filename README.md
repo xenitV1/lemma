@@ -63,7 +63,7 @@ Memories are injected into tool descriptions via `tools/list`. The LLM starts ev
 
 **Memory types:** `fact`, `pattern`, `lesson`, `warning`, `context`
 
-**Knowledge pipeline:** Memory (what you know, `lemma_memory_add`) → Pattern (`type: "pattern"`) → Guide (how you work, `lemma_guide_distill` → `lemma_guide_practice`)
+**Knowledge pipeline:** Memory (what you know, `memory_add`) → Pattern (`type: "pattern"`) → Guide (how you work, `guide_distill` → `guide_practice`)
 
 **No project-file modification:** Lemma injects memory through the MCP prompt layer — the system prompt and tool descriptions — and never writes to `AGENTS.md` or any project file. This works identically on every MCP client. (Legacy `<!-- lemma:* -->` blocks left by older versions are auto-cleaned on startup.)
 
@@ -79,51 +79,53 @@ Manual deep analysis is also available via dedicated tools.
 
 ## Tools (26)
 
+Lemma exposes short MCP tool names such as `memory_read`, `memory_add`, and `session_start`. Most clients display tools with the server namespace prepended, so you may see names like `mcp_lemma_memory_add`; that is expected. Redundant doubled names like `mcp_lemma_lemma_memory_add` are not used.
+
 ### Memory (10)
 
 | Tool | Purpose |
 |------|---------|
-| `lemma_memory_read` | Read/search fragments. Summary mode or full detail by ID |
-| `lemma_memory_add` | Save findings. Auto-redacts secrets, detects duplicates and conflicts |
-| `lemma_memory_update` | Update fragment by ID |
-| `lemma_memory_feedback` | Positive/negative feedback, adjusts confidence |
-| `lemma_memory_forget` | Delete fragment |
-| `lemma_memory_merge` | Merge fragments, inherit relations & guide links |
-| `lemma_memory_relate` | Create typed links (`contradicts`, `supersedes`, `supports`, `related_to`) |
-| `lemma_memory_stats` | Fragment counts, confidence, project breakdown |
-| `lemma_memory_audit` | Integrity check for orphans, duplicates, anomalies |
-| `lemma_memory_library` | Full knowledge base snapshot with analysis signals and suggestions |
+| `memory_read` | Read/search fragments. Summary mode or full detail by ID |
+| `memory_add` | Save findings. Auto-redacts secrets, detects duplicates and conflicts |
+| `memory_update` | Update fragment by ID |
+| `memory_feedback` | Positive/negative feedback, adjusts confidence |
+| `memory_forget` | Delete fragment |
+| `memory_merge` | Merge fragments, inherit relations & guide links |
+| `memory_relate` | Create typed links (`contradicts`, `supersedes`, `supports`, `related_to`) |
+| `memory_stats` | Fragment counts, confidence, project breakdown |
+| `memory_audit` | Integrity check for orphans, duplicates, anomalies |
+| `memory_library` | Full knowledge base snapshot with analysis signals and suggestions |
 
 ### Guides (7)
 
 | Tool | Purpose |
 |------|---------|
-| `lemma_guide_get` | Get guides sorted by usage, filter by category or task |
-| `lemma_guide_practice` | Record guide usage. Auto-creates guide if missing |
-| `lemma_guide_create` | Create guide with detailed manual |
-| `lemma_guide_distill` | Transform memory → guide learning (bidirectional link) |
-| `lemma_guide_update` | Update guide properties, anti-patterns, pitfalls |
-| `lemma_guide_forget` | Remove guide |
-| `lemma_guide_merge` | Merge guides, inherit source memories |
+| `guide_get` | Get guides sorted by usage, filter by category or task |
+| `guide_practice` | Record guide usage. Auto-creates guide if missing |
+| `guide_create` | Create guide with detailed manual |
+| `guide_distill` | Transform memory → guide learning (bidirectional link) |
+| `guide_update` | Update guide properties, anti-patterns, pitfalls |
+| `guide_forget` | Remove guide |
+| `guide_merge` | Merge guides, inherit source memories |
 
 ### Sessions (5)
 
 | Tool | Purpose |
 |------|---------|
-| `lemma_session_start` | Start traced session, pre-loads relevant context |
-| `lemma_session_attempt` | Record a tried approach (rejected/partial/promising) — dead ends are valuable memory |
-| `lemma_session_end` | End session with review, auto-linking, and suggestions |
-| `lemma_session_stats` | Virtual session statistics |
-| `lemma_suggestion_respond` | Accept or dismiss a surfaced improvement suggestion (teaches Lemma your preferences) |
+| `session_start` | Start traced session, pre-loads relevant context |
+| `session_attempt` | Record a tried approach (rejected/partial/promising) — dead ends are valuable memory |
+| `session_end` | End session with review, auto-linking, and suggestions |
+| `session_stats` | Virtual session statistics |
+| `suggestion_respond` | Accept or dismiss a surfaced improvement suggestion (teaches Lemma your preferences) |
 
 ### Intelligence (4)
 
 | Tool | Purpose |
 |------|---------|
-| `lemma_conflict_scan` | Scan all memories for contradictions |
-| `lemma_proactive_analysis` | Full knowledge base analysis: stale, orphan, distill, deprecated |
-| `lemma_project_analytics` | Cross-session project health, growth rate, skill coverage |
-| `lemma_semantic_search` | TF-IDF similarity search across memories |
+| `conflict_scan` | Scan all memories for contradictions |
+| `proactive_analysis` | Full knowledge base analysis: stale, orphan, distill, deprecated |
+| `project_analytics` | Cross-session project health, growth rate, skill coverage |
+| `semantic_search` | TF-IDF similarity search across memories |
 
 ## Configuration
 
@@ -191,8 +193,6 @@ Lemma is local-first by design:
 ## Documentation
 
 - [Development Guide](docs/development/DEVELOPMENT.md) — Architecture, project structure, testing
-- [Handlers Refactor](docs/development/HANDLERS-REFACTOR.md) — Targeted SQL migration plan
-- [Roadmap](docs/development/ROADMAP.md) — v0.9, v0.10, v1.0 plans
 - [Research](docs/research/README.md) — Academic papers that influenced Lemma's design
 - [Changelog](CHANGELOG.md) — Version history
 

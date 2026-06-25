@@ -200,6 +200,10 @@ describe("handleGuideGet", () => {
     const result = await handlers.handleGuideGet({ guide: "react" });
     assert.ok(!result.isError);
     assert.ok(result.content[0].text.includes("react"));
+    assert.deepEqual(Object.keys(result.structuredContent as Record<string, unknown>).sort(), ["count", "guide", "guides"].sort());
+    assert.equal((result.structuredContent as any).count, 1);
+    assert.equal((result.structuredContent as any).guides.length, 1);
+    assert.equal((result.structuredContent as any).guide.guide, "react");
   });
 
   test("returns suggestions when task parameter given", async () => {
@@ -208,6 +212,8 @@ describe("handleGuideGet", () => {
     const result = await handlers.handleGuideGet({ task: "react component with hooks" });
     assert.ok(!result.isError);
     assert.ok(result.content[0].text.length > 0);
+    assert.deepEqual(Object.keys(result.structuredContent as Record<string, unknown>).sort(), ["count", "guide", "guides"].sort());
+    assert.equal((result.structuredContent as any).guide, null);
   });
 
   test("returns empty state when no guides", async () => {

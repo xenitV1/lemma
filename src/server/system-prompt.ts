@@ -346,7 +346,7 @@ export async function buildInjectedTools(projectName: string | null): Promise<To
     };
   });
 
-  const memoryReadIdx = clonedTools.findIndex(t => t.name === "lemma_memory_read");
+  const memoryReadIdx = clonedTools.findIndex(t => t.name === "memory_read");
   if (memoryReadIdx >= 0) {
     clonedTools[memoryReadIdx] = {
       ...clonedTools[memoryReadIdx],

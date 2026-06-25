@@ -40,7 +40,7 @@ const DEFAULT_WRITE: ToolAnnotations = { readOnlyHint: false, destructiveHint: f
 
 export const TOOLS: ToolDefinition[] = [
   {
-    name: "lemma_session_start",
+    name: "session_start",
     description: "Start a traced work session. Records task metadata and returns relevant guides and pre-loaded memories for the task.",
     inputSchema: {
       additionalProperties: false,
@@ -73,7 +73,7 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "lemma_session_end",
+    name: "session_end",
     description: "End the current traced session. Records outcome, updates guide success/failure tracking, and generates improvement suggestions if patterns are detected.",
     inputSchema: {
       additionalProperties: false,
@@ -106,7 +106,7 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "lemma_session_attempt",
+    name: "session_attempt",
     description: "Record a reasoning attempt during the current task — what you tried, why, and the outcome. Captures the reasoning journey (tried/rejected hypotheses) so future sessions don't repeat dead ends. Call whenever an approach is abandoned or only partially tried. Outcome 'rejected' is the MOST valuable (it prevents repeating a dead end).",
     inputSchema: {
       additionalProperties: false,
@@ -146,7 +146,7 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "lemma_suggestion_respond",
+    name: "suggestion_respond",
     description: "Respond to a surfaced improvement suggestion — accept it as useful or dismiss it as irrelevant. Resolves the suggestion so it stops being surfaced at session_start and teaches Lemma your preferences. Call when a suggestion is no longer relevant or you've acted on it.",
     inputSchema: {
       additionalProperties: false,
@@ -174,7 +174,7 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "lemma_memory_read",
+    name: "memory_read",
     description: "Read memory fragments. SUMMARY MODE: Shows title + description only (not full content). Use id parameter to get full detail of a specific fragment. Use all=true to see fragments from all projects.",
     inputSchema: {
       additionalProperties: false,
@@ -232,7 +232,7 @@ export const TOOLS: ToolDefinition[] = [
         },
       },
     },
-    annotations: READ_ONLY,
+    annotations: DEFAULT_WRITE,
     outputSchema: {
       type: "object",
       properties: {
@@ -244,7 +244,7 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "lemma_memory_add",
+    name: "memory_add",
     description:
       "MANDATORY: Call this AFTER completing analysis/research to save findings. Synthesize information into short, reusable fragments.\n\nFRAGMENT SCHEMA — always follow this structure:\n## [Topic Title]\n\n### Context\n[1-2 sentences: what and why it matters]\n\n### [Content Section]\n- [Key fact 1]\n- [Key fact 2]\n\n### Rules (optional, for patterns/warnings)\n- [Absolute constraint]\n\nRULES:\n- ALWAYS store fragments in ENGLISH regardless of conversation language. This ensures search and retrieval works correctly.\n- Title: max 80 chars, start with topic name\n- Fragment: 30-2000 chars, structured markdown, NOT plain prose\n- Every fragment MUST have a ## heading and at least one ### section\n- Type: Choose based on nature:\n  * fact = technical info, API behavior, version details\n  * pattern = repeated solution, best practice, code pattern\n  * lesson = learned from experience, mistake, debugging insight\n  * warning = caution, gotcha, pitfall to avoid\n  * context = environment info, project setup, dependencies\n- Auto-title: If you omit title, first 40 chars of fragment used\n- Auto-description: First sentence extracted from fragment",
     inputSchema: {
@@ -298,7 +298,7 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "lemma_memory_update",
+    name: "memory_update",
     description: "Update an existing memory fragment by ID. Can update title, fragment text, confidence, or all.",
     inputSchema: {
       additionalProperties: false,
@@ -334,7 +334,7 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "lemma_memory_forget",
+    name: "memory_forget",
     description: "Remove a memory fragment by ID.",
     inputSchema: {
       additionalProperties: false,
@@ -358,7 +358,7 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "lemma_memory_feedback",
+    name: "memory_feedback",
     description: "Provide feedback on a memory fragment after use. positive = the memory was useful (boosts confidence), negative = it was not helpful (reduces confidence by -0.1).",
     inputSchema: {
       additionalProperties: false,
@@ -387,7 +387,7 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "lemma_memory_merge",
+    name: "memory_merge",
     description: "Merge multiple memory fragments into one. You decide the merged content, this tool just executes the merge. Use when you find related/overlapping fragments that should be consolidated.",
     inputSchema: {
       additionalProperties: false,
@@ -426,7 +426,7 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "lemma_memory_relate",
+    name: "memory_relate",
     description:
       "Create a typed relation between two memory fragments. Bidirectional — reverse relation auto-created.\n\nRELATION TYPES — when to use each:\n- supports: Fragment A reinforces/validates Fragment B\n- contradicts: Fragment A contradicts/invalidates Fragment B\n- supersedes: Fragment A is newer and replaces Fragment B\n- related_to: General connection between fragments\n\nWHEN TO CALL:\n- After memory_add if you know this relates to an existing fragment\n- After memory_update if content changed significantly\n- After discovering two fragments are connected during analysis",
     inputSchema: {
@@ -464,7 +464,7 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "lemma_memory_stats",
+    name: "memory_stats",
     description: "Get memory store statistics: fragment counts, average confidence, project breakdown, and health metrics.",
     inputSchema: {
       additionalProperties: false,
@@ -496,7 +496,7 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "lemma_memory_audit",
+    name: "memory_audit",
     description: "Audit memory store for integrity issues: orphan references, duplicate IDs, confidence anomalies.",
     inputSchema: {
       additionalProperties: false,
@@ -521,7 +521,7 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "lemma_guide_get",
+    name: "guide_get",
     description: "Get guides with usage statistics. Returns guides sorted by usage count (most used first). Use task parameter to get suggestions based on a task description.",
     inputSchema: {
       additionalProperties: false,
@@ -552,12 +552,13 @@ export const TOOLS: ToolDefinition[] = [
       properties: {
         count: { type: "number", description: "Number of guides returned." },
         guides: { type: "array", items: { type: "object" }, description: "Guides with usage statistics (sorted by usage count)." },
+        guide: { type: ["object", "null"], description: "Requested guide detail in single-guide mode; null otherwise." },
       },
       required: ["count"],
     },
   },
   {
-    name: "lemma_guide_practice",
+    name: "guide_practice",
     description:
       "MANDATORY: Record guide usage - increments usage count, updates last_used date, and adds contexts/learnings. Call this when you use a guide during work.\n\nTEMPLATE:\n- guide: technology/method name (e.g., \"react\", \"git\", \"seo\")\n- category: web-frontend | web-backend | dev-tool | programming-language | data-storage | ...\n- contexts: WHERE you used it (e.g., [\"hooks\", \"state\", \"effects\"])\n- learnings: WHAT you discovered (e.g., [\"useCallback prevents re-renders\"])\n\nIf guide doesn't exist, it will be auto-created.\nCall this AFTER applying knowledge from a guide or memory fragment.",
     inputSchema: {
@@ -606,7 +607,7 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "lemma_guide_create",
+    name: "guide_create",
     description: "Definition mode: Create a new guide with a detailed manual, mission, and protocols. Use this to establish a reusable framework for a specific technology or methodology.",
     inputSchema: {
       additionalProperties: false,
@@ -648,7 +649,7 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "lemma_guide_distill",
+    name: "guide_distill",
     description:
       "Transform a memory fragment (static fact) into a guide's learning (procedural knowledge). Use this when a learned piece of information should become part of a permanent capability.\n\nWHEN TO CALL: After memory_add with type=\"pattern\" or type=\"lesson\". These fragment types represent reusable knowledge that should be promoted to a guide.\n\nTEMPLATE:\n- memory_id: The fragment ID to distill (e.g., \"m2a5d0cde45ce\")\n- guide: Target guide name — use technology name (e.g., \"react\", \"git\")\n- category: Required only if creating a new guide\n\nThe memory and guide will be bidirectionally linked automatically.",
     inputSchema: {
@@ -682,7 +683,7 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "lemma_guide_update",
+    name: "guide_update",
     description: "Update an existing guide's basic properties (name, category, description).",
     inputSchema: {
       additionalProperties: false,
@@ -736,7 +737,7 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "lemma_guide_forget",
+    name: "guide_forget",
     description: "Remove a guide from the persistent database.",
     inputSchema: {
       additionalProperties: false,
@@ -760,7 +761,7 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "lemma_guide_merge",
+    name: "guide_merge",
     description: "Merge multiple guides into one. You decide the merged content (description, contexts, learnings). Usage counts are summed. Use when you find overlapping guides that should be consolidated.",
     inputSchema: {
       additionalProperties: false,
@@ -808,7 +809,7 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "lemma_memory_library",
+    name: "memory_library",
     description: `Library Mode: Analyze and organize your entire memory database. Returns a comprehensive snapshot with all fragments, guides, relations, pre-computed analysis signals (stale, duplicate, orphan detection), and suggested actions. After reviewing the snapshot, use other tools (memory_merge, memory_forget, memory_update, guide_distill, memory_relate) to execute organizational changes.\n\nWHEN TO CALL:\n- Periodically to maintain a clean, well-organized knowledge base\n- When memory feels cluttered or redundant\n- After a long project with many fragments added\n- To find distill candidates that haven't been promoted to guides`,
     inputSchema: {
       additionalProperties: false,
@@ -852,7 +853,7 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "lemma_session_stats",
+    name: "session_stats",
     description: "Get virtual session statistics: recent tool usage patterns, technologies encountered, and memory activity.",
     inputSchema: {
       additionalProperties: false,
@@ -879,7 +880,7 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "lemma_conflict_scan",
+    name: "conflict_scan",
     description: "Scan memories for contradictions. Detects opposing sentiments, negation conflicts, and contradicting claims across the knowledge base. Returns pairs of conflicting memories with overlap scores.",
     inputSchema: {
       additionalProperties: false,
@@ -907,7 +908,7 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "lemma_proactive_analysis",
+    name: "proactive_analysis",
     description: "Run proactive intelligence analysis on the knowledge base. Detects recurring patterns, suggests guide distillation, identifies stale/isolated memories, and recommends cleanup actions. This is the autonomous intelligence layer.",
     inputSchema: {
       additionalProperties: false,
@@ -935,7 +936,7 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "lemma_project_analytics",
+    name: "project_analytics",
     description: "Get cross-session analytics for a project. Tracks knowledge growth rate, skill evolution, session outcomes, and overall project health. Shows how the AI's understanding of a project has evolved over time.",
     inputSchema: {
       additionalProperties: false,
@@ -956,16 +957,16 @@ export const TOOLS: ToolDefinition[] = [
     outputSchema: {
       type: "object",
       properties: {
-        project: { type: "string", description: "Project name (present in single-project mode)." },
-        health_score: { type: "number", description: "Overall project health score 0-1 (single-project mode)." },
+        project: { type: ["string", "null"], description: "Project name in single-project mode; null in overview mode." },
+        health_score: { type: ["number", "null"], description: "Overall project health score 0-1 in single-project mode; null in overview mode." },
         recent_insights: { type: "array", items: { type: "object" }, description: "Recent knowledge-growth and session-outcome insights (single-project mode)." },
-        count: { type: "number", description: "Number of projects (overview mode)." },
+        count: { type: ["number", "null"], description: "Number of projects in overview mode; null in single-project mode." },
         projects: { type: "array", items: { type: "object" }, description: "Per-project summaries (overview mode)." },
       },
     },
   },
   {
-    name: "lemma_semantic_search",
+    name: "semantic_search",
     description: "Search memories using TF-IDF semantic similarity. Finds related memories even when different words are used. Unlike FTS5 keyword search, this understands topic similarity. Use when keyword search fails to find related knowledge.",
     inputSchema: {
       additionalProperties: false,

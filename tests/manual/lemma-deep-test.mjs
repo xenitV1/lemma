@@ -48,61 +48,61 @@ async function call(name, args, expectOk=true) {
 }
 
 // ---- full lifecycle ----
-await call("lemma_session_start", {task_type:"debugging", technologies:["react","typescript"]});
-await call("lemma_session_attempt", {approach:"useEffect fetch", outcome:"rejected", critique:"race condition"});
-await call("lemma_memory_add", {fragment:"## React hooks\n### Context\nState mgmt.\n- useState is basic", title:"React hooks", type:"lesson"});
-const mems = await call("lemma_memory_read", {query:"react", limit:5});
+await call("session_start", {task_type:"debugging", technologies:["react","typescript"]});
+await call("session_attempt", {approach:"useEffect fetch", outcome:"rejected", critique:"race condition"});
+await call("memory_add", {fragment:"## React hooks\n### Context\nState mgmt.\n- useState is basic", title:"React hooks", type:"lesson"});
+const mems = await call("memory_read", {query:"react", limit:5});
 const id = mems?.structuredContent?.fragments?.[0]?.id;
 check("memory_read returns fragment id", !!id);
 if (id) {
-  await call("lemma_memory_update", {id, confidence:0.8});
-  await call("lemma_memory_feedback", {id, useful:true});
-  await call("lemma_memory_read", {id});
+  await call("memory_update", {id, confidence:0.8});
+  await call("memory_feedback", {id, useful:true});
+  await call("memory_read", {id});
 }
 // add second + third fragment for merge/relate (3rd avoids auto-link collision)
-const m2 = await call("lemma_memory_add", {fragment:"## TS types\n### Context\nTyping.\n- strict mode good", title:"TS types", type:"fact"});
+const m2 = await call("memory_add", {fragment:"## TS types\n### Context\nTyping.\n- strict mode good", title:"TS types", type:"fact"});
 const id2 = m2?.structuredContent?.id;
-const m3 = await call("lemma_memory_add", {fragment:"## CSS grid\n### Context\nLayout.\n- grid template", title:"CSS grid", type:"fact"});
+const m3 = await call("memory_add", {fragment:"## CSS grid\n### Context\nLayout.\n- grid template", title:"CSS grid", type:"fact"});
 const id3 = m3?.structuredContent?.id;
 if (id2 && id3) {
-  const rel = await c.callTool({name:"lemma_memory_relate", arguments:{sourceId:id2, targetId:id3, type:"related_to", note:"frontend styling"}});
+  const rel = await c.callTool({name:"memory_relate", arguments:{sourceId:id2, targetId:id3, type:"related_to", note:"frontend styling"}});
   // relate may hit auto-link collision (isError); only assert structuredContent on success
-  if (!rel.isError) check("lemma_memory_relate has structuredContent", !!rel.structuredContent);
+  if (!rel.isError) check("memory_relate has structuredContent", !!rel.structuredContent);
 }
-await call("lemma_memory_stats", {});
-await call("lemma_memory_audit", {});
-await call("lemma_memory_library", {limit:5});
-await call("lemma_conflict_scan", {});
-await call("lemma_proactive_analysis", {});
-await call("lemma_project_analytics", {}); // overview mode: optional fields intentionally absent
-await call("lemma_semantic_search", {query:"hooks state", topK:3});
-await call("lemma_session_stats", {count:3});
-await call("lemma_guide_get", {});
-await call("lemma_guide_create", {guide:"react-hooks", category:"web-frontend", description:"### Mission\nMaster hooks.\n### Rules\n- always cleanup"});
-await call("lemma_guide_practice", {guide:"react-hooks", category:"web-frontend", contexts:["hooks"], learnings:["useEffect cleanup"]});
-if (id) await call("lemma_guide_distill", {memory_id:id, guide:"react-hooks"});
-await call("lemma_guide_update", {guide:"react-hooks", add_pitfalls:["stale closures"]});
+await call("memory_stats", {});
+await call("memory_audit", {});
+await call("memory_library", {limit:5});
+await call("conflict_scan", {});
+await call("proactive_analysis", {});
+await call("project_analytics", {}); // overview mode: optional fields intentionally absent
+await call("semantic_search", {query:"hooks state", topK:3});
+await call("session_stats", {count:3});
+await call("guide_get", {});
+await call("guide_create", {guide:"react-hooks", category:"web-frontend", description:"### Mission\nMaster hooks.\n### Rules\n- always cleanup"});
+await call("guide_practice", {guide:"react-hooks", category:"web-frontend", contexts:["hooks"], learnings:["useEffect cleanup"]});
+if (id) await call("guide_distill", {memory_id:id, guide:"react-hooks"});
+await call("guide_update", {guide:"react-hooks", add_pitfalls:["stale closures"]});
 
 // pagination test on memory_read
-const page1 = await call("lemma_memory_read", {limit:2, offset:0});
+const page1 = await call("memory_read", {limit:2, offset:0});
 check("memory_read pagination has_more", page1?.structuredContent?.has_more !== undefined);
 
 // error path: unknown id
-const err1 = await c.callTool({name:"lemma_memory_read", arguments:{id:"m_nonexistent_xyz"}});
+const err1 = await c.callTool({name:"memory_read", arguments:{id:"m_nonexistent_xyz"}});
 check("error path returns isError", !!err1.isError);
 
 // suggestion_respond (no suggestions exist -> best effort)
-try { await call("lemma_suggestion_respond", {id:1, action:"dismiss"}); } catch {}
+try { await call("suggestion_respond", {id:1, action:"dismiss"}); } catch {}
 
 // guide_merge + guide_forget + memory_forget + memory_merge (destructive, last)
 if (id && id2) {
-  await call("lemma_memory_merge", {ids:[id,id2], title:"Frontend notes", fragment:"merged", project:null});
+  await call("memory_merge", {ids:[id,id2], title:"Frontend notes", fragment:"merged", project:null});
 }
-await call("lemma_guide_create", {guide:"typescript", category:"programming-language", description:"### Mission\nTS.\n### Rules\n- strict mode"});
-await call("lemma_guide_merge", {guides:["react-hooks","typescript"], guide:"frontend-all", category:"web-frontend"});
-await call("lemma_guide_forget", {guide:"frontend-all"});
+await call("guide_create", {guide:"typescript", category:"programming-language", description:"### Mission\nTS.\n### Rules\n- strict mode"});
+await call("guide_merge", {guides:["react-hooks","typescript"], guide:"frontend-all", category:"web-frontend"});
+await call("guide_forget", {guide:"frontend-all"});
 
-await call("lemma_session_end", {outcome:"success", lessons:["structured content works"]});
+await call("session_end", {outcome:"success", lessons:["structured content works"]});
 
 console.log(`\n=== DEEP TEST RESULT ===`);
 console.log(`checks: ${pass} pass / ${fail} fail`);

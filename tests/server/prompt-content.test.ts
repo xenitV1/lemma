@@ -43,7 +43,7 @@ describe("TOOL_NUDGES", () => {
   });
 
   test("covers the critical workflow tools", () => {
-    const required = ["lemma_session_start", "lemma_memory_read", "lemma_memory_add", "lemma_session_end"];
+    const required = ["session_start", "memory_read", "memory_add", "session_end"];
     for (const name of required) {
       assert.ok(name in TOOL_NUDGES, `Missing nudge for critical tool: ${name}`);
     }
@@ -53,5 +53,17 @@ describe("TOOL_NUDGES", () => {
     for (const value of Object.values(TOOL_NUDGES)) {
       assert.ok(!value.includes("AGENTS.md"));
     }
+  });
+
+  test("model-facing copy avoids legacy lemma_-prefixed tool names", () => {
+    const copy = [
+      INSTRUCTIONS_TEMPLATE,
+      ...Object.values(TOOL_NUDGES),
+      ...TOOLS.map(t => t.description),
+    ].join("\n");
+    assert.ok(copy.includes("memory_read"));
+    assert.ok(copy.includes("memory_add"));
+    assert.ok(copy.includes("guide_practice"));
+    assert.ok(!/\blemma_(memory|guide|session|suggestion|conflict|proactive|project|semantic)_/.test(copy));
   });
 });

@@ -45,7 +45,7 @@ afterEach(() => {
 describe("Virtual Sessions", () => {
   describe("recordToolCall", () => {
     test("creates new virtual session on first call", () => {
-      const session: VirtualSession = recordToolCall("lemma_memory_read", { query: "test" }, null);
+      const session: VirtualSession = recordToolCall("memory_read", { query: "test" }, null);
       assert.ok(session);
       assert.ok(session.id.startsWith("vs_"));
       assert.ok(session.started_at);
@@ -53,13 +53,13 @@ describe("Virtual Sessions", () => {
     });
 
     test("appends to existing session on subsequent calls", () => {
-      recordToolCall("lemma_memory_read", { query: "first" }, null);
-      const session: VirtualSession = recordToolCall("lemma_memory_read", { query: "second" }, null);
+      recordToolCall("memory_read", { query: "first" }, null);
+      const session: VirtualSession = recordToolCall("memory_read", { query: "second" }, null);
       assert.equal(session.tool_calls.length, 2);
     });
 
     test("extracts project from memory_add args", () => {
-      const session: VirtualSession = recordToolCall("lemma_memory_add", {
+      const session: VirtualSession = recordToolCall("memory_add", {
         fragment: "test",
         project: "MyProject",
       }, null);
@@ -67,7 +67,7 @@ describe("Virtual Sessions", () => {
     });
 
     test("tracks technologies from guide_practice contexts", () => {
-      const session: VirtualSession = recordToolCall("lemma_guide_practice", {
+      const session: VirtualSession = recordToolCall("guide_practice", {
         guide: "react",
         contexts: ["Hooks", "State"],
       }, null);
@@ -76,7 +76,7 @@ describe("Virtual Sessions", () => {
     });
 
     test("tracks guides used from guide_practice", () => {
-      const session: VirtualSession = recordToolCall("lemma_guide_practice", {
+      const session: VirtualSession = recordToolCall("guide_practice", {
         guide: "React",
         contexts: [],
       }, null);
@@ -84,12 +84,12 @@ describe("Virtual Sessions", () => {
     });
 
     test("tracks memories accessed from memory_read", () => {
-      const session: VirtualSession = recordToolCall("lemma_memory_read", { id: "m123abc" }, null);
+      const session: VirtualSession = recordToolCall("memory_read", { id: "m123abc" }, null);
       assert.ok(session.memories_accessed.includes("m123abc"));
     });
 
     test("tracks memories created from memory_add titles", () => {
-      const session: VirtualSession = recordToolCall("lemma_memory_add", {
+      const session: VirtualSession = recordToolCall("memory_add", {
         fragment: "content",
         title: "New Memory",
       }, { content: [{ text: "Added [mabc123def] New Memory" }] });
@@ -103,7 +103,7 @@ describe("Virtual Sessions", () => {
     });
 
     test("saves session to disk as JSON", () => {
-      recordToolCall("lemma_memory_read", { query: "test" }, null);
+      recordToolCall("memory_read", { query: "test" }, null);
       const session: FinalizedVirtualSession = finalizeVirtualSession()!;
 
       const files: string[] = fs.readdirSync(TMPDIR).filter((f: string) => f.endsWith(".json"));
@@ -115,7 +115,7 @@ describe("Virtual Sessions", () => {
     });
 
     test("converts Set fields to arrays for serialization", () => {
-      recordToolCall("lemma_guide_practice", {
+      recordToolCall("guide_practice", {
         guide: "react",
         contexts: ["hooks"],
       }, null);
@@ -128,7 +128,7 @@ describe("Virtual Sessions", () => {
     });
 
     test("clears current session after finalizing", () => {
-      recordToolCall("lemma_memory_read", { query: "test" }, null);
+      recordToolCall("memory_read", { query: "test" }, null);
       finalizeVirtualSession();
       assert.equal(getCurrentVirtualSession(), null);
     });
@@ -139,9 +139,9 @@ describe("Virtual Sessions", () => {
     });
 
     test("includes duration_tool_calls count", () => {
-      recordToolCall("lemma_memory_read", { query: "a" }, null);
-      recordToolCall("lemma_memory_read", { query: "b" }, null);
-      recordToolCall("lemma_memory_read", { query: "c" }, null);
+      recordToolCall("memory_read", { query: "a" }, null);
+      recordToolCall("memory_read", { query: "b" }, null);
+      recordToolCall("memory_read", { query: "c" }, null);
       const session: FinalizedVirtualSession = finalizeVirtualSession()!;
       assert.equal(session.duration_tool_calls, 3);
     });
@@ -149,7 +149,7 @@ describe("Virtual Sessions", () => {
 
   describe("getRecentSessions", () => {
     test("reads saved session files from disk", () => {
-      recordToolCall("lemma_memory_read", { query: "test" }, null);
+      recordToolCall("memory_read", { query: "test" }, null);
       finalizeVirtualSession();
 
       const recent: FinalizedVirtualSession[] = getRecentSessions();
@@ -162,7 +162,7 @@ describe("Virtual Sessions", () => {
       setSessionLogDir(limitDir);
 
       for (let i = 0; i < 5; i++) {
-        recordToolCall("lemma_memory_read", { query: `q${i}` }, null);
+        recordToolCall("memory_read", { query: `q${i}` }, null);
         finalizeVirtualSession();
         await new Promise((r: (value: unknown) => void) => setTimeout(r, 5));
       }
@@ -181,7 +181,7 @@ describe("Virtual Sessions", () => {
   describe("setVirtualSessionConfig", () => {
     test("overrides config", () => {
       setVirtualSessionConfig({ timeout_minutes: 5 });
-      recordToolCall("lemma_memory_read", { query: "test" }, null);
+      recordToolCall("memory_read", { query: "test" }, null);
       const session: VirtualSession = getCurrentVirtualSession()!;
       assert.ok(session);
     });
@@ -193,7 +193,7 @@ describe("Virtual Sessions", () => {
     });
 
     test("returns session after tool call", () => {
-      recordToolCall("lemma_memory_read", { query: "test" }, null);
+      recordToolCall("memory_read", { query: "test" }, null);
       const session: VirtualSession = getCurrentVirtualSession()!;
       assert.ok(session);
       assert.ok(session.id.startsWith("vs_"));

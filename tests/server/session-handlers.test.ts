@@ -124,6 +124,25 @@ describe("handleSessionEnd", () => {
   });
 });
 
+describe("handleSessionAttempt", () => {
+  test("uses persisted active session after process-local state is reset", async () => {
+    await handlers.handleSessionStart({ task_type: "debugging" });
+    const [created] = sessions.loadSessions();
+    resetSessionState();
+
+    const result = await handlers.handleSessionAttempt({
+      approach: "restart-safe attempt",
+      outcome: "rejected",
+      critique: "process-local state was empty",
+    });
+
+    assert.ok(!result.isError);
+    const attempts = sessions.loadAttemptsForSession(created.session_id);
+    assert.equal(attempts.length, 1);
+    assert.equal(attempts[0].approach, "restart-safe attempt");
+  });
+});
+
 describe("handleSessionStats", () => {
   test("returns virtual session statistics", async () => {
     const result = await handlers.handleSessionStats({});

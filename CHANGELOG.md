@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.17.0] - 2026-06-25
+
+MCP usability + release hardening. Tool names are short again, SDK initialize negotiation is back on the standard path, and the stdio server is quieter and more reliable for clients that decide when to auto-use Lemma.
+
+### Breaking Changes
+- **All 26 MCP tools renamed back to short names** (`lemma_memory_read` -> `memory_read`, `lemma_memory_add` -> `memory_add`, `lemma_guide_get` -> `guide_get`, `lemma_session_start` -> `session_start`, etc.). MCP clients already namespace tools by server, so the previous names displayed as redundant forms like `mcp_lemma_lemma_memory_add`. New display names should be `mcp_lemma_memory_add`, `mcp_lemma_memory_read`, and so on. Existing clients or scripts that call the 0.15/0.16 `lemma_*` names must update to the short names.
+
+### Fixed
+- **LLM auto-use regression around Lemma discovery.** The server now keeps the MCP stdio process alive reliably, avoids pre-transport stdin sniffing, and no longer pollutes stderr with normal INFO/WARN/debug noise. This keeps the client handshake and tool discovery path cleaner, which directly affects whether models see and choose Lemma tools without manual triggering.
+- **Custom `initialize` handler replaced with the SDK standard initialize path.** Lemma still returns dynamic `instructions`, but client capabilities/protocol negotiation is handled by the MCP SDK instead of a hand-written response.
+- **`guide_get` outputSchema mismatch.** Single-guide, task-suggestion, and list modes now return a consistent structured shape.
+- **`project_analytics` overview outputSchema mismatch.** Overview and single-project modes now return all declared fields with explicit `null`/empty-array values where appropriate.
+- **`memory_read` tool annotations.** It is no longer advertised as read-only because reading updates access/session state.
+- **Persisted active session recovery.** Session operations now rehydrate the active session from the database if process-local state is lost.
+- **Session link cleanup.** `saveSessions` clears stale guide/memory links and skips missing link targets instead of violating foreign keys.
+- **CLI polish.** `lemma --help`, `lemma --version`, invalid visualizer ports, and `lemma -lib` output are cleaner; `-lib` writes the snapshot to stdout.
+
+### Changed
+- Docs and tests now use the short tool names across README, Turkish README, manual MCP tests, contract tests, prompt nudges, and handler routing.
+- npm package contents now include `docs/README.tr.md` instead of a nonexistent root `README.tr.md`.
+
+### Verified
+- `npm run typecheck`
+- `npm test` (61/61)
+- `npm run build`
+- `npm run test:mcp`
+- `node tests/manual/lemma-confirm-test.mjs`
+- `node tests/manual/lemma-deep-test.mjs`
+- `npm pack --dry-run --json`
+
 ## [0.16.0] - 2026-06-16
 
 MCP correctness + project isolation release. All 26 `outputSchema`s now match the actual tool return data (enforced by the SDK under protocol `2025-06-18`), and memory is now isolated per project by default instead of silently leaking global.

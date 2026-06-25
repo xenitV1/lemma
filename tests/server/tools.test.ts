@@ -5,67 +5,66 @@ import { TOOLS } from "../../src/server/tools.js";
 
 // The complete, canonical list of tool names. Any change to the tool set MUST
 // update this list — the tests below lock the contract and prevent silent
-// regressions (lost lemma_ prefix, dropped annotation, removed outputSchema).
+// regressions (redundant prefix, dropped annotation, removed outputSchema).
 const ALLOWED_NAMES = [
-  "lemma_session_start",
-  "lemma_session_end",
-  "lemma_session_attempt",
-  "lemma_suggestion_respond",
-  "lemma_memory_read",
-  "lemma_memory_add",
-  "lemma_memory_update",
-  "lemma_memory_forget",
-  "lemma_memory_feedback",
-  "lemma_memory_merge",
-  "lemma_memory_relate",
-  "lemma_memory_stats",
-  "lemma_memory_audit",
-  "lemma_memory_library",
-  "lemma_guide_get",
-  "lemma_guide_practice",
-  "lemma_guide_create",
-  "lemma_guide_distill",
-  "lemma_guide_update",
-  "lemma_guide_forget",
-  "lemma_guide_merge",
-  "lemma_session_stats",
-  "lemma_conflict_scan",
-  "lemma_proactive_analysis",
-  "lemma_project_analytics",
-  "lemma_semantic_search",
+  "session_start",
+  "session_end",
+  "session_attempt",
+  "suggestion_respond",
+  "memory_read",
+  "memory_add",
+  "memory_update",
+  "memory_forget",
+  "memory_feedback",
+  "memory_merge",
+  "memory_relate",
+  "memory_stats",
+  "memory_audit",
+  "memory_library",
+  "guide_get",
+  "guide_practice",
+  "guide_create",
+  "guide_distill",
+  "guide_update",
+  "guide_forget",
+  "guide_merge",
+  "session_stats",
+  "conflict_scan",
+  "proactive_analysis",
+  "project_analytics",
+  "semantic_search",
 ];
 
 const READ_ONLY = new Set([
-  "lemma_memory_read",
-  "lemma_memory_stats",
-  "lemma_memory_audit",
-  "lemma_memory_library",
-  "lemma_semantic_search",
-  "lemma_conflict_scan",
-  "lemma_proactive_analysis",
-  "lemma_project_analytics",
-  "lemma_guide_get",
-  "lemma_session_stats",
+  "memory_stats",
+  "memory_audit",
+  "memory_library",
+  "semantic_search",
+  "conflict_scan",
+  "proactive_analysis",
+  "project_analytics",
+  "guide_get",
+  "session_stats",
 ]);
 
 const DESTRUCTIVE = new Set([
-  "lemma_memory_forget",
-  "lemma_memory_merge",
-  "lemma_guide_forget",
-  "lemma_guide_merge",
+  "memory_forget",
+  "memory_merge",
+  "guide_forget",
+  "guide_merge",
 ]);
 
 const IDEMPOTENT = new Set([
-  "lemma_session_start",
-  "lemma_suggestion_respond",
-  "lemma_memory_update",
-  "lemma_memory_feedback",
-  "lemma_memory_relate",
-  "lemma_guide_update",
+  "session_start",
+  "suggestion_respond",
+  "memory_update",
+  "memory_feedback",
+  "memory_relate",
+  "guide_update",
 ]);
 
 describe("TOOLS registry", () => {
-  test("exposes exactly the 26 lemma_-prefixed tools", () => {
+  test("exposes exactly the 26 short tool names", () => {
     const names = TOOLS.map(t => t.name).sort();
     assert.deepEqual(names, [...ALLOWED_NAMES].sort());
   });
@@ -75,9 +74,9 @@ describe("TOOLS registry", () => {
     assert.equal(new Set(names).size, names.length, "Duplicate tool names detected");
   });
 
-  test("every tool name carries the lemma_ prefix", () => {
+  test("tool names do not carry the redundant lemma_ prefix", () => {
     for (const tool of TOOLS) {
-      assert.ok(tool.name.startsWith("lemma_"), `Tool missing lemma_ prefix: ${tool.name}`);
+      assert.ok(!tool.name.startsWith("lemma_"), `Tool has redundant lemma_ prefix: ${tool.name}`);
     }
   });
 
@@ -102,6 +101,13 @@ describe("TOOLS registry", () => {
         assert.equal(tool.annotations!.idempotentHint, true, `${tool.name} must be idempotentHint:true`);
       }
     }
+  });
+
+  test("memory_read is not advertised as read-only because it tracks access/session state", () => {
+    const tool = TOOLS.find(t => t.name === "memory_read");
+    assert.ok(tool);
+    assert.equal(tool.annotations!.readOnlyHint, false);
+    assert.equal(tool.annotations!.idempotentHint, false);
   });
 
   test("destructive tools are annotated destructiveHint:true", () => {

@@ -6,7 +6,6 @@ import {
   ListToolsRequestSchema,
   ListResourcesRequestSchema,
   ReadResourceRequestSchema,
-  InitializeRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import * as core from "../memory/index.js";
 import * as guides from "../guides/index.js";
@@ -25,74 +24,41 @@ import * as agentsMd from "./agents-md.js";
 import { VERSION } from "../version.js";
 
 export let detectedProject: string | null = null;
+let server: Server | null = null;
+let serverKeepAlive: ReturnType<typeof setInterval> | null = null;
+let stdinEndHandlerAttached = false;
 
 export function setDetectedProject(p: string | null): void {
   detectedProject = p;
 }
 
-const server = new Server(
-  {
-    name: "lemma",
-    version: VERSION,
-  },
-  {
-    capabilities: {
-      tools: {
-        listChanged: true,
-      },
-      resources: {
-        listChanged: true,
-      },
+function createServer(instructions: string): Server {
+  const instance = new Server(
+    {
+      name: "lemma",
+      version: VERSION,
     },
-  }
-);
+    {
+      capabilities: {
+        tools: {
+          listChanged: true,
+        },
+        resources: {
+          listChanged: true,
+        },
+      },
+      instructions,
+    }
+  );
 
-export function getServer(): Server {
-  return server;
-}
-
-server.setRequestHandler(ListToolsRequestSchema, async () => {
+instance.setRequestHandler(ListToolsRequestSchema, async () => {
+  traffic.logIncoming({ method: "tools/list", params: null });
   const tools = await buildInjectedTools(detectedProject);
   return { tools };
 });
 
-server.setRequestHandler(InitializeRequestSchema, async (_request) => {
-  logger.request("initialize");
-
-  detectedProject = core.detectProject();
-
-  logger.flow("initialize", "project_detected", { project: detectedProject });
-
-  if (detectedProject) {
-    console.error(`[Lemma] Detected project: ${detectedProject}`);
-  }
-
-  const instructions = buildInstructions(detectedProject);
-
-  logger.response("initialize", false, 0, {
-    project: detectedProject,
-    instructionsLength: instructions.length,
-  });
-
-  return {
-    protocolVersion: "2025-06-18",
-    capabilities: {
-      tools: {
-        listChanged: true,
-      },
-      resources: {
-        listChanged: true,
-      },
-    },
-    serverInfo: {
-      name: "lemma",
-      version: VERSION,
-    },
-    instructions,
-  };
-});
-
-server.setRequestHandler(ListResourcesRequestSchema, async () => {
+instance.setRequestHandler(ListResourcesRequestSchema, async () => {
+  traffic.logIncoming({ method: "resources/list", params: null });
   const resources = [
     {
       uri: "lemma://system-prompt",
@@ -107,7 +73,8 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => {
   return { resources };
 });
 
-server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+instance.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+  traffic.logIncoming({ method: "resources/read", params: request.params ?? {} });
   const { uri } = request.params as { uri: string };
 
   logger.flow("resources/read", "requested", { uri });
@@ -171,9 +138,10 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   throw new Error(`Unknown resource: ${uri}`);
 });
 
-server.setRequestHandler(CallToolRequestSchema, (async (request: any) => {
+instance.setRequestHandler(CallToolRequestSchema, (async (request: any) => {
   const toolName = (request.params as any).name as string;
   const start = Date.now();
+  traffic.logIncoming({ method: "tools/call", params: request.params ?? {}, id: (request as any).id ?? null });
 
   const argsSummary: Record<string, unknown> = {};
   const rawArgs = (request.params as any).arguments;
@@ -197,7 +165,7 @@ server.setRequestHandler(CallToolRequestSchema, (async (request: any) => {
       logger.warn(`Tool ${toolName} returned error: ${text}`);
     }
     logger.response("tools/call", !!result.isError, duration, { tool: toolName });
-    if (toolName !== "lemma_session_end") {
+    if (toolName !== "session_end") {
       try {
         virtualSession.recordToolCall(
           toolName,
@@ -206,42 +174,42 @@ server.setRequestHandler(CallToolRequestSchema, (async (request: any) => {
           detectedProject
         );
       } catch (e) {
-        console.error(`[Lemma][DEBUG] recordToolCall threw: ${(e as Error).message}`);
+        logger.debug("recordToolCall threw", { error: (e as Error).message });
       }
     }
 
-    console.error(`[Lemma][DEBUG] tool=${toolName} isError=${!!result.isError} hasContent=${!!result.content?.[0]?.text}`);
+    logger.debug("tool response", { tool: toolName, isError: !!result.isError, hasContent: !!result.content?.[0]?.text });
 
     if (
       !result.isError &&
-      toolName !== "lemma_memory_add" &&
-      toolName !== "lemma_memory_update" &&
-      toolName !== "lemma_memory_feedback" &&
-      toolName !== "lemma_guide_practice"
+      toolName !== "memory_add" &&
+      toolName !== "memory_update" &&
+      toolName !== "memory_feedback" &&
+      toolName !== "guide_practice"
     ) {
       const reminder = virtualSession.getReminderText();
       if (reminder && result.content?.[0]?.text) {
         result.content[0].text += reminder;
-        console.error(`[Lemma] Reminder appended to ${toolName} response`);
+        logger.debug("Reminder appended", { tool: toolName });
       }
     }
 
     const sessionEndMsg = virtualSession.consumeSessionEndMessage();
-    console.error(`[Lemma][DEBUG] sessionEndMsg=${JSON.stringify(sessionEndMsg)}`);
+    logger.debug("sessionEndMsg consumed", { hasMessage: !!sessionEndMsg });
     if (sessionEndMsg && result.content?.[0]?.text) {
       result.content[0].text += sessionEndMsg;
-      console.error(`[Lemma] Session end message appended to ${toolName} response`);
+      logger.debug("Session end message appended", { tool: toolName });
     } else if (sessionEndMsg) {
-      console.error(`[Lemma][DEBUG] sessionEndMsg set but no content text to append to`);
+      logger.debug("Session end message set but no text content", { tool: toolName });
     }
 
     const sessionStartMsg = virtualSession.consumeSessionStartMessage();
-    console.error(`[Lemma][DEBUG] sessionStartMsg=${JSON.stringify(sessionStartMsg)}`);
+    logger.debug("sessionStartMsg consumed", { hasMessage: !!sessionStartMsg });
     if (sessionStartMsg && result.content?.[0]?.text) {
       result.content[0].text += sessionStartMsg;
-      console.error(`[Lemma] Session start message appended to ${toolName} response`);
+      logger.debug("Session start message appended", { tool: toolName });
     } else if (sessionStartMsg) {
-      console.error(`[Lemma][DEBUG] sessionStartMsg set but no content text to append to`);
+      logger.debug("Session start message set but no text content", { tool: toolName });
     }
 
     return result;
@@ -252,6 +220,16 @@ server.setRequestHandler(CallToolRequestSchema, (async (request: any) => {
     throw error;
   }
 }) as any);
+
+  return instance;
+}
+
+export function getServer(): Server {
+  if (!server) {
+    server = createServer(buildInstructions(detectedProject));
+  }
+  return server;
+}
 
 async function initializeContext(): Promise<void> {
   initLogger();
@@ -344,30 +322,13 @@ export async function runLibMode(): Promise<void> {
   const snapshot = collectLibrarySnapshot(db, { project: null, focus: "full" });
   const formatted = formatLibrarySnapshot(snapshot, "full");
 
-  console.error(formatted);
+  process.stdout.write(formatted + "\n");
   process.exit(0);
 }
 
 export async function startServer(): Promise<void> {
   logger.flow("server", "starting");
   traffic.initTrafficLogger();
-
-  let incomingBuffer = "";
-
-  process.stdin.on("data", (chunk: Buffer) => {
-    const text = chunk.toString();
-    incomingBuffer += text;
-    const lines = incomingBuffer.split("\n");
-    incomingBuffer = lines.pop() || "";
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      try {
-        const parsed = JSON.parse(trimmed);
-        traffic.logIncoming(parsed);
-      } catch {}
-    }
-  });
 
   const origStdoutWrite = process.stdout.write;
 
@@ -386,9 +347,20 @@ export async function startServer(): Promise<void> {
 
   await initializeContext();
 
+  const activeServer = createServer(buildInstructions(detectedProject));
+  server = activeServer;
+
   logger.flow("server", "creating_transport");
   const transport = new StdioServerTransport();
-  await server.connect(transport);
+  await activeServer.connect(transport);
+  process.stdin.resume();
+  if (!serverKeepAlive) {
+    serverKeepAlive = setInterval(() => {}, 60 * 60 * 1000);
+  }
+  if (!stdinEndHandlerAttached) {
+    process.stdin.on("end", () => gracefulShutdown("STDIN_END"));
+    stdinEndHandlerAttached = true;
+  }
   logger.info("Server connected via stdio transport");
   logger.flow("server", "connected");
 
@@ -398,7 +370,7 @@ export async function startServer(): Promise<void> {
     notifyTimer = setTimeout(() => {
       notifyTimer = null;
       logger.notify("notifications/tools/list_changed", "debounced");
-      server.notification({ method: "notifications/tools/list_changed" }).then(() => {
+      activeServer.notification({ method: "notifications/tools/list_changed" }).then(() => {
         logger.notify("notifications/tools/list_changed", "sending");
       }).catch((e) => {
         logger.notify("notifications/tools/list_changed", "failed", (e as Error).message);
@@ -410,18 +382,21 @@ export async function startServer(): Promise<void> {
 }
 
 function gracefulShutdown(signal: string): void {
-  console.error(`[Lemma] ${signal} received — finalizing session`);
+  logger.flow("server", "shutdown_received", { signal });
   logger.flow("server", "shutdown", { signal });
+  if (serverKeepAlive) {
+    clearInterval(serverKeepAlive);
+    serverKeepAlive = null;
+  }
 
   const vs = virtualSession.getCurrentVirtualSession();
   if (vs && vs.tool_calls.length > 0) {
-    console.error(`[Lemma] Finalizing virtual session ${vs.id} (${vs.tool_calls.length} tool calls)`);
     const finalized = virtualSession.finalizeVirtualSession();
     if (finalized) {
-      console.error(`[Lemma] Virtual session finalized: ${finalized.id}`);
+      logger.flow("server", "virtual_session_finalized", { id: finalized.id });
     }
   } else {
-    console.error(`[Lemma] No active virtual session to finalize`);
+    logger.flow("server", "virtual_session_finalize_skipped", { reason: "none" });
   }
 
   process.exit(0);

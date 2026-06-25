@@ -5,6 +5,7 @@ import path from "path";
 import os from "os";
 
 import type { Session } from "../../src/types.js";
+import { getDb } from "../../src/db/database.js";
 
 import {
   setSessionsDir,
@@ -107,6 +108,39 @@ describe("Sessions Core", () => {
 
       const loaded: Session[] = loadSessions();
       assert.equal(loaded.length, 1);
+    });
+
+    test("clears stale guide and memory links when session arrays become empty", () => {
+      const s: Session = createSession("debugging");
+      const db = getDb();
+      db.prepareCached("INSERT INTO guides (guide, category, description) VALUES (?, ?, ?)").run("react", "web-frontend", "React guide");
+      db.prepareCached("INSERT INTO memories (legacy_id, title, fragment, type) VALUES (?, ?, ?, ?)").run("m1", "Memory 1", "fragment", "fact");
+
+      s.guides_used = ["react"];
+      s.memories_read = ["m1"];
+      saveSessions([s]);
+
+      assert.equal((db.prepareCached("SELECT COUNT(*) AS count FROM session_guide_usage WHERE session_id = ?").get(s.session_id) as any).count, 1);
+      assert.equal((db.prepareCached("SELECT COUNT(*) AS count FROM session_memory_links WHERE session_id = ?").get(s.session_id) as any).count, 1);
+
+      s.guides_used = [];
+      s.memories_read = [];
+      saveSessions([s]);
+
+      assert.equal((db.prepareCached("SELECT COUNT(*) AS count FROM session_guide_usage WHERE session_id = ?").get(s.session_id) as any).count, 0);
+      assert.equal((db.prepareCached("SELECT COUNT(*) AS count FROM session_memory_links WHERE session_id = ?").get(s.session_id) as any).count, 0);
+    });
+
+    test("skips missing guide and memory links instead of violating foreign keys", () => {
+      const s: Session = createSession("debugging");
+      s.guides_used = ["missing-guide"];
+      s.memories_read = ["missing-memory"];
+
+      assert.doesNotThrow(() => saveSessions([s]));
+
+      const db = getDb();
+      assert.equal((db.prepareCached("SELECT COUNT(*) AS count FROM session_guide_usage WHERE session_id = ?").get(s.session_id) as any).count, 0);
+      assert.equal((db.prepareCached("SELECT COUNT(*) AS count FROM session_memory_links WHERE session_id = ?").get(s.session_id) as any).count, 0);
     });
   });
 

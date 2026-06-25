@@ -40,15 +40,15 @@ automatically — act on signals when sensible.
 -lib -> memory_library (full snapshot). -vis -> launch visualizer.`;
 
 export const TOOL_NUDGES: Record<string, string> = {
-  lemma_session_start: "⚠️ Call this FIRST when starting a task — loads relevant context.",
-  lemma_memory_read: "⚠️ ALWAYS read before acting — your past self may have solved this. Never re-explore code already in memory.",
-  lemma_memory_add: "⚠️ Save new knowledge IMMEDIATELY — unsaved knowledge is lost forever. Never ask permission, just save.",
-  lemma_memory_update: "When reality contradicts a memory, trust reality and update it here.",
-  lemma_memory_feedback: "Give 👍 after a useful memory to boost its ranking.",
-  lemma_session_end: "Call when done — record outcome (success/partial/failure) + lessons.",
-  lemma_session_attempt: "⚠️ Record abandoned/partial approaches — dead ends are the MOST valuable memory (prevents repeating them).",
-  lemma_suggestion_respond: "Respond to surfaced improvement suggestions — dismiss if not relevant, accept if useful (so Lemma learns your preferences).",
-  lemma_guide_distill: "Promote a proven pattern/lesson into a reusable guide.",
-  lemma_guide_practice: "⚠️ Always record each guide use + outcome here — it trains the guide.",
-  lemma_memory_library: "User -lib -> full knowledge-base snapshot + maintenance signals.",
+  session_start: "⚠️ Call this FIRST when starting a task — loads relevant context.",
+  memory_read: "⚠️ ALWAYS read before acting — your past self may have solved this. Never re-explore code already in memory.",
+  memory_add: "⚠️ Save new knowledge IMMEDIATELY — unsaved knowledge is lost forever. Never ask permission, just save.",
+  memory_update: "When reality contradicts a memory, trust reality and update it here.",
+  memory_feedback: "Give 👍 after a useful memory to boost its ranking.",
+  session_end: "Call when done — record outcome (success/partial/failure) + lessons.",
+  session_attempt: "⚠️ Record abandoned/partial approaches — dead ends are the MOST valuable memory (prevents repeating them).",
+  suggestion_respond: "Respond to surfaced improvement suggestions — dismiss if not relevant, accept if useful (so Lemma learns your preferences).",
+  guide_distill: "Promote a proven pattern/lesson into a reusable guide.",
+  guide_practice: "⚠️ Always record each guide use + outcome here — it trains the guide.",
+  memory_library: "User -lib -> memory_library full knowledge-base snapshot + maintenance signals.",
 };

@@ -29,23 +29,23 @@ async function run(name, args) {
 
 const results = [];
 // setup
-await c.callTool({name:"lemma_session_start", arguments:{task_type:"testing", technologies:["node"]}});
-const a = await c.callTool({name:"lemma_memory_add", arguments:{fragment:"## X\n### Context\nA.\n- one", title:"A", type:"fact"}});
+await c.callTool({name:"session_start", arguments:{task_type:"testing", technologies:["node"]}});
+const a = await c.callTool({name:"memory_add", arguments:{fragment:"## X\n### Context\nA.\n- one", title:"A", type:"fact"}});
 const idA = a.structuredContent?.id;
-const b = await c.callTool({name:"lemma_memory_add", arguments:{fragment:"## Y\n### Context\nB.\n- two", title:"B", type:"fact"}});
+const b = await c.callTool({name:"memory_add", arguments:{fragment:"## Y\n### Context\nB.\n- two", title:"B", type:"fact"}});
 const idB = b.structuredContent?.id;
 
-results.push(await run("lemma_memory_read", {query:"x", limit:5}));
-if (idA) results.push(await run("lemma_memory_read", {id: idA}));
-results.push(await run("lemma_memory_stats", {}));
-results.push(await run("lemma_memory_audit", {}));
-results.push(await run("lemma_session_stats", {count:2}));
-results.push(await run("lemma_memory_library", {limit:5}));
-results.push(await run("lemma_project_analytics", {}));
-results.push(await run("lemma_conflict_scan", {}));
-results.push(await run("lemma_proactive_analysis", {}));
-results.push(await run("lemma_semantic_search", {query:"x", topK:3}));
-results.push(await run("lemma_guide_get", {}));
+results.push(await run("memory_read", {query:"x", limit:5}));
+if (idA) results.push(await run("memory_read", {id: idA}));
+results.push(await run("memory_stats", {}));
+results.push(await run("memory_audit", {}));
+results.push(await run("session_stats", {count:2}));
+results.push(await run("memory_library", {limit:5}));
+results.push(await run("project_analytics", {}));
+results.push(await run("conflict_scan", {}));
+results.push(await run("proactive_analysis", {}));
+results.push(await run("semantic_search", {query:"x", topK:3}));
+results.push(await run("guide_get", {}));
 
 console.log("\n=== OUTPUT SCHEMA vs ACTUAL DATA — CONFIRMATION ===\n");
 const breaks = [], silent = [], ok = [];

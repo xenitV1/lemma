@@ -126,8 +126,8 @@ describe("buildInjectedTools", () => {
     assert.ok(Array.isArray(result));
     assert.strictEqual(result.length, 26, `Expected 26 tools, got ${result.length}`);
     const names = result.map(t => t.name);
-    assert.ok(names.includes("lemma_memory_read"));
-    assert.ok(names.includes("lemma_memory_add"));
+    assert.ok(names.includes("memory_read"));
+    assert.ok(names.includes("memory_add"));
   });
 
   test("does not mutate original TOOLS", async () => {
@@ -142,28 +142,28 @@ describe("buildInjectedTools", () => {
     core.saveMemory(frags);
 
     const result = await buildInjectedTools("testproj");
-    const memRead = result.find(t => t.name === "lemma_memory_read");
+    const memRead = result.find(t => t.name === "memory_read");
     assert.ok(memRead);
     assert.ok(memRead.description.includes("injected test content") || memRead.description.includes("Inject Test"));
   });
 
   test("injection contains memory markers", async () => {
     const result = await buildInjectedTools(null);
-    const memRead = result.find(t => t.name === "lemma_memory_read");
+    const memRead = result.find(t => t.name === "memory_read");
     assert.ok(memRead);
     assert.ok(memRead.description.includes("PERSISTENT MEMORY"));
   });
 
   test("non-memory_read tools do not receive memory content", async () => {
     const result = await buildInjectedTools(null);
-    const memAdd = result.find(t => t.name === "lemma_memory_add");
+    const memAdd = result.find(t => t.name === "memory_add");
     assert.ok(memAdd);
     assert.ok(!memAdd.description.includes("PERSISTENT MEMORY"));
   });
 
   test("shows no memories message when memory is empty", async () => {
     const result = await buildInjectedTools(null);
-    const memRead = result.find(t => t.name === "lemma_memory_read");
+    const memRead = result.find(t => t.name === "memory_read");
     assert.ok(memRead);
     assert.ok(memRead.description.includes("No memories yet"));
   });
@@ -173,7 +173,7 @@ describe("buildInjectedTools", () => {
     core.saveMemory(frags);
 
     const result = await buildInjectedTools("testproj");
-    const memRead = result.find(t => t.name === "lemma_memory_read");
+    const memRead = result.find(t => t.name === "memory_read");
     assert.ok(memRead);
     assert.ok(memRead.description.includes("Global Item") || memRead.description.includes("global knowledge"));
   });
@@ -189,7 +189,7 @@ describe("buildInjectedTools", () => {
     guides.saveGuides(allGuides);
 
     const result = await buildInjectedTools(null);
-    const memRead = result.find(t => t.name === "lemma_memory_read");
+    const memRead = result.find(t => t.name === "memory_read");
     assert.ok(memRead);
     assert.ok(memRead.description.includes("react-patterns") || memRead.description.includes("ACTIVE GUIDES"));
   });
@@ -201,7 +201,7 @@ describe("buildInjectedTools", () => {
     core.saveMemory(frags);
 
     const result = await buildInjectedTools("testproj");
-    const memRead = result.find(t => t.name === "lemma_memory_read");
+    const memRead = result.find(t => t.name === "memory_read");
     assert.ok(memRead);
     const injectionStart = memRead.description.indexOf("PERSISTENT MEMORY");
     const injectionText = memRead.description.substring(injectionStart);
@@ -220,7 +220,7 @@ describe("buildInjectedTools", () => {
     guides.saveGuides(allGuides);
 
     const result = await buildInjectedTools(null);
-    const memRead = result.find(t => t.name === "lemma_memory_read");
+    const memRead = result.find(t => t.name === "memory_read");
     assert.ok(memRead);
     assert.ok(memRead.description.includes("active-guide"));
     assert.ok(!memRead.description.includes("deprecated-guide"));
@@ -229,40 +229,40 @@ describe("buildInjectedTools", () => {
   test("tool names remain correct", async () => {
     const result = await buildInjectedTools(null);
     const names = result.map(t => t.name);
-    assert.ok(names.includes("lemma_memory_read"));
-    assert.ok(names.includes("lemma_memory_add"));
-    assert.ok(names.includes("lemma_memory_update"));
-    assert.ok(names.includes("lemma_memory_forget"));
-    assert.ok(names.includes("lemma_memory_feedback"));
-    assert.ok(names.includes("lemma_memory_merge"));
-    assert.ok(names.includes("lemma_memory_relate"));
-    assert.ok(names.includes("lemma_memory_stats"));
-    assert.ok(names.includes("lemma_memory_audit"));
-    assert.ok(names.includes("lemma_guide_get"));
-    assert.ok(names.includes("lemma_guide_practice"));
-    assert.ok(names.includes("lemma_guide_create"));
-    assert.ok(names.includes("lemma_guide_distill"));
-    assert.ok(names.includes("lemma_guide_update"));
-    assert.ok(names.includes("lemma_guide_forget"));
-    assert.ok(names.includes("lemma_guide_merge"));
-    assert.ok(names.includes("lemma_session_start"));
-    assert.ok(names.includes("lemma_session_end"));
-    assert.ok(names.includes("lemma_session_stats"));
+    assert.ok(names.includes("memory_read"));
+    assert.ok(names.includes("memory_add"));
+    assert.ok(names.includes("memory_update"));
+    assert.ok(names.includes("memory_forget"));
+    assert.ok(names.includes("memory_feedback"));
+    assert.ok(names.includes("memory_merge"));
+    assert.ok(names.includes("memory_relate"));
+    assert.ok(names.includes("memory_stats"));
+    assert.ok(names.includes("memory_audit"));
+    assert.ok(names.includes("guide_get"));
+    assert.ok(names.includes("guide_practice"));
+    assert.ok(names.includes("guide_create"));
+    assert.ok(names.includes("guide_distill"));
+    assert.ok(names.includes("guide_update"));
+    assert.ok(names.includes("guide_forget"));
+    assert.ok(names.includes("guide_merge"));
+    assert.ok(names.includes("session_start"));
+    assert.ok(names.includes("session_end"));
+    assert.ok(names.includes("session_stats"));
   });
 
   test("nudges are appended to relevant tools", async () => {
     const result = await buildInjectedTools(null);
-    const memAdd = result.find(t => t.name === "lemma_memory_add");
+    const memAdd = result.find(t => t.name === "memory_add");
     assert.ok(memAdd);
     assert.ok(memAdd.description.includes("Save new knowledge IMMEDIATELY"), "memory_add should carry its nudge");
-    const sessStart = result.find(t => t.name === "lemma_session_start");
+    const sessStart = result.find(t => t.name === "session_start");
     assert.ok(sessStart);
     assert.ok(sessStart.description.includes("FIRST when starting a task"), "session_start should carry its nudge");
   });
 
   test("session_attempt carries its dead-end nudge", async () => {
     const result = await buildInjectedTools(null);
-    const attempt = result.find(t => t.name === "lemma_session_attempt");
+    const attempt = result.find(t => t.name === "session_attempt");
     assert.ok(attempt, "session_attempt tool must exist");
     assert.ok(
       attempt.description.includes("dead ends are the MOST valuable memory"),
@@ -274,7 +274,7 @@ describe("buildInjectedTools", () => {
     const frags = [core.createFragment("content xyz marker", "ai", "Xyz Marker", "p")];
     core.saveMemory(frags);
     const result = await buildInjectedTools("p");
-    const memRead = result.find(t => t.name === "lemma_memory_read");
+    const memRead = result.find(t => t.name === "memory_read");
     assert.ok(memRead);
     assert.ok(memRead.description.includes("ALWAYS read before acting"), "memory_read should carry its nudge");
     assert.ok(memRead.description.includes("PERSISTENT MEMORY"), "memory_read should still carry memory content");
@@ -282,9 +282,9 @@ describe("buildInjectedTools", () => {
 
   test("non-nudged tools keep their static description unchanged", async () => {
     const result = await buildInjectedTools(null);
-    const audit = result.find(t => t.name === "lemma_memory_audit");
+    const audit = result.find(t => t.name === "memory_audit");
     assert.ok(audit);
-    const staticAudit = TOOLS.find(t => t.name === "lemma_memory_audit");
+    const staticAudit = TOOLS.find(t => t.name === "memory_audit");
     assert.ok(staticAudit);
     assert.strictEqual(audit.description, staticAudit.description);
   });

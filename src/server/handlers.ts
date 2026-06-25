@@ -188,20 +188,30 @@ export function resetSessionState(): void {
   virtualSession.finalizeVirtualSession();
 }
 
-export function autoStartSession(project: string | null): void {
+function resolveActiveSession(allSessions: Session[] = sessions.loadSessions()): Session | null {
   if (activeSessionId) {
-    logger.flow("auto_session", "start_skipped", { reason: "already_active", activeSessionId });
-    return;
+    const current = sessions.findSession(allSessions, activeSessionId);
+    if (current && current.status === "active") {
+      return current;
+    }
   }
 
-  console.error(`[Lemma] Auto-starting session (triggered by first tool call)`);
+  const persisted = sessions.findActiveSession(allSessions);
+  if (persisted) {
+    activeSessionId = persisted.session_id;
+    return persisted;
+  }
 
+  activeSessionId = null;
+  return null;
+}
+
+export function autoStartSession(project: string | null): void {
   const allSessions = sessions.loadSessions();
-  const existing = sessions.findActiveSession(allSessions);
-  if (existing) {
-    existing.status = "abandoned";
-    existing.task_outcome = "abandoned";
-    console.error(`[Lemma] Abandoned previous session: ${existing.session_id}`);
+  const existingActive = resolveActiveSession(allSessions);
+  if (existingActive) {
+    logger.flow("auto_session", "start_skipped", { reason: "already_active", activeSessionId: existingActive.session_id });
+    return;
   }
 
   const session = sessions.createSession("auto", []);
@@ -210,15 +220,12 @@ export function autoStartSession(project: string | null): void {
   allSessions.push(session);
   sessions.saveSessions(allSessions);
 
-  console.error(`[Lemma] Auto-session started: ${session.session_id} (project: ${project || "unknown"})`);
   logger.flow("auto_session", "started", { session_id: session.session_id, project });
 }
 
 export function autoEndSession(vs: any): void {
-  if (!activeSessionId) return;
-
   const allSessions = sessions.loadSessions();
-  const session = sessions.findSession(allSessions, activeSessionId);
+  const session = resolveActiveSession(allSessions);
   if (!session) return;
 
   const toolCount = vs.duration_tool_calls || 0;
@@ -543,9 +550,7 @@ export async function handleSessionEnd(args?: SessionEndArgs): Promise<ToolResul
 
   logger.data("sessions", "load");
   const allSessions = sessions.loadSessions();
-  const session = activeSessionId
-    ? sessions.findSession(allSessions, activeSessionId)
-    : sessions.findActiveSession(allSessions);
+  const session = resolveActiveSession(allSessions);
 
   if (!session) {
     logger.warn("session_end no active session", { activeSessionId });
@@ -715,23 +720,16 @@ export async function handleSessionAttempt(args?: SessionAttemptArgs): Promise<T
     };
   }
 
-  const sessionId = activeSessionId;
-  if (!sessionId) {
+  const allSessions = sessions.loadSessions();
+  const session = resolveActiveSession(allSessions);
+  if (!session) {
     logger.warn("session_attempt no active session", {});
     return {
       content: [{ type: "text", text: "Error: No active session. Call session_start before recording attempts." }],
       isError: true,
     };
   }
-
-  const allSessions = sessions.loadSessions();
-  const session = sessions.findSession(allSessions, sessionId);
-  if (!session) {
-    return {
-      content: [{ type: "text", text: "Error: Active session not found in store." }],
-      isError: true,
-    };
-  }
+  const sessionId = session.session_id;
 
   // Redact secrets from free-text fields before persisting (reuses memory/privacy.ts —
   // attempts contain reasoning that may paste in tokens/keys). rationale is short and optional; left as-is.
@@ -874,10 +872,10 @@ export async function handleSuggestionRespond(args?: SuggestionRespondArgs): Pro
  * Best-effort: never throws (memory_read must not fail because session-tracking failed).
  */
 function trackReadIntoSession(readIds: string[]): void {
-  if (!activeSessionId || readIds.length === 0) return;
+  if (readIds.length === 0) return;
   try {
     const allSessions = sessions.loadSessions();
-    const session = sessions.findSession(allSessions, activeSessionId);
+    const session = resolveActiveSession(allSessions);
     if (!session) return;
     const existing = new Set(session.memories_read || []);
     let added = false;
@@ -890,7 +888,7 @@ function trackReadIntoSession(readIds: string[]): void {
     if (!added) return;
     session.memories_read = [...existing];
     sessions.saveSessions([session]);
-    logger.flow("memory_read", "session_track_read", { session_id: activeSessionId, count: session.memories_read.length });
+    logger.flow("memory_read", "session_track_read", { session_id: session.session_id, count: session.memories_read.length });
   } catch (error: unknown) {
     logger.warn("memory_read session_track_read failed", { error: error instanceof Error ? error.message : String(error) });
   }
@@ -1712,14 +1710,18 @@ export async function handleGuideGet(args?: GuideGetArgs): Promise<ToolResult> {
     const result = guides.suggestGuides(task, guides.loadGuides());
     logger.flow("guide_get", "task_suggestions", { task, relevant: result.relevant.length, suggested: result.suggested.length });
     const formatted = guides.formatSuggestions(result);
-    return buildResult({ text: formatted, data: { count: result.suggested.length, guides: result.suggested }, format: responseFormat });
+    return buildResult({ text: formatted, data: { count: result.suggested.length, guides: result.suggested, guide: null }, format: responseFormat });
   }
 
   if (guideName) {
     logger.flow("guide_get", "single_guide_lookup", { guide: guideName });
     const guide = guides.getGuideFromDb(guideName);
     logger.flow("guide_get", "complete_single", { guide: guideName, found: !!guide });
-    return buildResult({ text: guides.formatGuideDetail(guide), data: { guide }, format: responseFormat });
+    return buildResult({
+      text: guides.formatGuideDetail(guide),
+      data: { count: guide ? 1 : 0, guides: guide ? [guide] : [], guide: guide ?? null },
+      format: responseFormat,
+    });
   }
 
   const filtered = category
@@ -1728,7 +1730,7 @@ export async function handleGuideGet(args?: GuideGetArgs): Promise<ToolResult> {
 
   logger.flow("guide_get", "complete_list", { category, filtered: filtered.length });
   const formatted = guides.formatGuidesForLLM(filtered);
-  return buildResult({ text: formatted, data: { count: filtered.length, guides: filtered }, format: responseFormat });
+  return buildResult({ text: formatted, data: { count: filtered.length, guides: filtered, guide: null }, format: responseFormat });
 }
 
 export async function handleGuidePractice(args?: GuidePracticeArgs): Promise<ToolResult> {
@@ -2362,13 +2364,21 @@ export async function handleProjectAnalytics(args?: { project?: string; response
     const db = getDb();
     const allProgress = intel.getAllProjectsAnalytics(db);
     if (allProgress.length === 0) {
-      return buildResult({ text: "No projects found with session or memory data.", data: { count: 0, projects: [] }, format: responseFormat });
+      return buildResult({
+        text: "No projects found with session or memory data.",
+        data: { project: null, health_score: null, recent_insights: [], count: 0, projects: [] },
+        format: responseFormat,
+      });
     }
     let output = `=== ALL PROJECTS OVERVIEW ===\n\n`;
     for (const p of allProgress) {
       output += `${p.project}: ${p.total_sessions} sessions, ${p.total_memories} memories, health ${(p.health_score * 100).toFixed(0)}%\n`;
     }
-    return buildResult({ text: output, data: { count: allProgress.length, projects: allProgress }, format: responseFormat });
+    return buildResult({
+      text: output,
+      data: { project: null, health_score: null, recent_insights: [], count: allProgress.length, projects: allProgress },
+      format: responseFormat,
+    });
   }
 
   logger.flow("project_analytics", "start", { project });
@@ -2377,7 +2387,7 @@ export async function handleProjectAnalytics(args?: { project?: string; response
   const formatted = intel.formatProjectProgress(progress);
 
   logger.flow("project_analytics", "complete", { project, health: progress.health_score });
-  return buildResult({ text: formatted, data: { ...progress, project }, format: responseFormat });
+  return buildResult({ text: formatted, data: { ...progress, project, count: null, projects: [] }, format: responseFormat });
 }
 
 export async function handleSemanticSearch(args?: { query?: string; project?: string; topK?: number; offset?: number; response_format?: "markdown" | "json" }): Promise<ToolResult> {
@@ -2445,132 +2455,132 @@ export async function handleCallTool(request: ToolCallRequest): Promise<ToolResu
 
   try {
     switch (name) {
-      case "lemma_session_start": {
+      case "session_start": {
         const result = await handleSessionStart(args as SessionStartArgs);
         logger.response(name, !!result.isError, Date.now() - startTime);
         return result;
       }
-      case "lemma_session_end": {
+      case "session_end": {
         const result = await handleSessionEnd(args as SessionEndArgs);
         logger.response(name, !!result.isError, Date.now() - startTime);
         return result;
       }
-      case "lemma_session_attempt": {
+      case "session_attempt": {
         const result = await handleSessionAttempt(args as SessionAttemptArgs);
         logger.response(name, !!result.isError, Date.now() - startTime);
         return result;
       }
-      case "lemma_suggestion_respond": {
+      case "suggestion_respond": {
         const result = await handleSuggestionRespond(args as SuggestionRespondArgs);
         logger.response(name, !!result.isError, Date.now() - startTime);
         return result;
       }
-      case "lemma_memory_read": {
+      case "memory_read": {
         const result = await handleMemoryRead(args as MemoryReadArgs);
         logger.response(name, !!result.isError, Date.now() - startTime);
         return result;
       }
-      case "lemma_memory_add": {
+      case "memory_add": {
         const result = await handleMemoryAdd(args as MemoryAddArgs);
         logger.response(name, !!result.isError, Date.now() - startTime);
         return result;
       }
-      case "lemma_memory_update": {
+      case "memory_update": {
         const result = await handleMemoryUpdate(args as MemoryUpdateArgs);
         logger.response(name, !!result.isError, Date.now() - startTime);
         return result;
       }
-      case "lemma_memory_forget": {
+      case "memory_forget": {
         const result = await handleMemoryForget(args as MemoryForgetArgs);
         logger.response(name, !!result.isError, Date.now() - startTime);
         return result;
       }
-      case "lemma_memory_feedback": {
+      case "memory_feedback": {
         const result = await handleMemoryFeedback(args as MemoryFeedbackArgs);
         logger.response(name, !!result.isError, Date.now() - startTime);
         return result;
       }
-      case "lemma_memory_merge": {
+      case "memory_merge": {
         const result = await handleMemoryMerge(args as MemoryMergeArgs);
         logger.response(name, !!result.isError, Date.now() - startTime);
         return result;
       }
-      case "lemma_memory_relate": {
+      case "memory_relate": {
         const result = await handleMemoryRelate(args as MemoryRelateArgs);
         logger.response(name, !!result.isError, Date.now() - startTime);
         return result;
       }
-      case "lemma_memory_stats": {
+      case "memory_stats": {
         const result = await handleMemoryStats(args as MemoryStatsArgs);
         logger.response(name, !!result.isError, Date.now() - startTime);
         return result;
       }
-      case "lemma_memory_audit": {
+      case "memory_audit": {
         const result = await handleMemoryAudit(args as { response_format?: "markdown" | "json" });
         logger.response(name, !!result.isError, Date.now() - startTime);
         return result;
       }
-      case "lemma_guide_get": {
+      case "guide_get": {
         const result = await handleGuideGet(args as GuideGetArgs);
         logger.response(name, !!result.isError, Date.now() - startTime);
         return result;
       }
-      case "lemma_guide_practice": {
+      case "guide_practice": {
         const result = await handleGuidePractice(args as GuidePracticeArgs);
         logger.response(name, !!result.isError, Date.now() - startTime);
         return result;
       }
-      case "lemma_guide_create": {
+      case "guide_create": {
         const result = await handleGuideCreate(args as GuideCreateArgs);
         logger.response(name, !!result.isError, Date.now() - startTime);
         return result;
       }
-      case "lemma_guide_distill": {
+      case "guide_distill": {
         const result = await handleGuideDistill(args as GuideDistillArgs);
         logger.response(name, !!result.isError, Date.now() - startTime);
         return result;
       }
-      case "lemma_guide_update": {
+      case "guide_update": {
         const result = await handleGuideUpdate(args as GuideUpdateArgs);
         logger.response(name, !!result.isError, Date.now() - startTime);
         return result;
       }
-      case "lemma_guide_forget": {
+      case "guide_forget": {
         const result = await handleGuideForget(args as GuideForgetArgs);
         logger.response(name, !!result.isError, Date.now() - startTime);
         return result;
       }
-      case "lemma_guide_merge": {
+      case "guide_merge": {
         const result = await handleGuideMerge(args as GuideMergeArgs);
         logger.response(name, !!result.isError, Date.now() - startTime);
         return result;
       }
-      case "lemma_session_stats": {
+      case "session_stats": {
         const result = await handleSessionStats(args as SessionStatsArgs);
         logger.response(name, !!result.isError, Date.now() - startTime);
         return result;
       }
-      case "lemma_memory_library": {
+      case "memory_library": {
         const result = await handleMemoryLibrary(args as MemoryLibraryArgs);
         logger.response(name, !!result.isError, Date.now() - startTime);
         return result;
       }
-      case "lemma_conflict_scan": {
+      case "conflict_scan": {
         const result = await handleConflictScan(args as { project?: string; response_format?: "markdown" | "json" });
         logger.response(name, !!result.isError, Date.now() - startTime);
         return result;
       }
-      case "lemma_proactive_analysis": {
+      case "proactive_analysis": {
         const result = await handleProactiveAnalysis(args as { project?: string; response_format?: "markdown" | "json" });
         logger.response(name, !!result.isError, Date.now() - startTime);
         return result;
       }
-      case "lemma_project_analytics": {
+      case "project_analytics": {
         const result = await handleProjectAnalytics(args as { project?: string; response_format?: "markdown" | "json" });
         logger.response(name, !!result.isError, Date.now() - startTime);
         return result;
       }
-      case "lemma_semantic_search": {
+      case "semantic_search": {
         const result = await handleSemanticSearch(args as { query?: string; project?: string; topK?: number; offset?: number; response_format?: "markdown" | "json" });
         logger.response(name, !!result.isError, Date.now() - startTime);
         return result;
