@@ -5,7 +5,7 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "lemma": "./dist/index.js"
+    "lemma": "dist/index.js"
   },
   "exports": {
     ".": "./dist/index.js",
@@ -54,7 +54,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/xenitV1/lemma.git"
+    "url": "git+https://github.com/xenitV1/lemma.git"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
