@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.17.2] - 2026-06-26
+
+Hotfix: `memory_read` single-id and batch (`ids`) paths returned only `{id}` in `structuredContent.fragments`, stripping title/type/fragment/confidence/project. The text body (`content[0].text`) still carried the full detail via `formatMemoryDetail`, but MCP clients that consume `structuredContent` (the path advertised by `outputSchema`) saw empty fragments — so `memory_read id="..."` and `session_start` preloaded memories appeared content-less. This was a regression introduced by the 0.16.0 outputSchema alignment, where the batch/single paths were collapsed to `{id}` objects to satisfy schema validation without restoring the real fields.
+
+### Fixed
+- **Single-id path now returns full fragment fields in `structuredContent`.** `memory_read id="..."` populates `fragments[0]` with `id`, `title`, `description`, `type`, `confidence`, `project`, `fragment` (full body), and `created` — matching the richness of `formatMemoryDetail` that the text body already carried.
+- **Batch path (`ids`) now returns full fragment fields for each found fragment.** Previously `fragments` was `readIds.map(rid => ({ id: rid }))`; it now maps over the boosted fragment objects and emits the same shape as the single-id path.
+- Both paths keep `has_more: false` / `next_offset: null` and the existing `content[0].text` rendering, so clients reading the markdown body are unaffected.
+
+### Added
+- **Regression tests** (`tests/server/memory-read-advanced.test.ts`) asserting that `structuredContent.fragments` carries `title`, `fragment` (body), `confidence`, and `type` for both single-id and batch lookups. The pre-existing tests only asserted on `content[0].text`, which is why this regression went undetected since 0.16.0.
+
+### Verified
+- `npm run typecheck`
+- `npm run test:server` (272/272, +2 new regression tests)
+- `npm run build`
+
 ## [0.17.1] - 2026-06-25
 
 Project-key normalization patch. Memory was still being filed under divergent keys (mixed case, full paths, the literal string `"global"`) despite the 0.16.0 project-isolation work, because `addFragmentToDb` bypassed the normalization that only `addMemory` had. Per-project recall silently missed memories filed under a sibling key — the "current project filter didn't recognize the project" symptom.

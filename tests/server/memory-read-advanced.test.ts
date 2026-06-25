@@ -105,3 +105,38 @@ describe("handleMemoryRead — query search", () => {
     assert.ok(!result.content[0].text.includes("Vue B"));
   });
 });
+
+describe("handleMemoryRead — structuredContent shape (regression for single-id/batch content loss)", () => {
+  test("single-id returns full fragment fields in structuredContent, not just {id}", async () => {
+    const f = core.createFragment("the full body text", "ai", "Detailed Title", null);
+    core.saveMemory([f]);
+
+    const result = await handlers.handleMemoryRead({ id: f.id });
+    assert.ok(!result.isError);
+    const sc = result.structuredContent as any;
+    assert.equal(sc.count, 1);
+    assert.ok(Array.isArray(sc.fragments));
+    const frag = sc.fragments[0];
+    assert.equal(frag.id, f.id);
+    assert.equal(frag.title, "Detailed Title");
+    assert.equal(frag.fragment, "the full body text");
+    assert.ok(typeof frag.confidence === "number");
+    assert.ok(typeof frag.type === "string");
+  });
+
+  test("batch ids return full fragment fields for each found fragment", async () => {
+    const f1 = core.createFragment("body one", "ai", "Title One", null);
+    const f2 = core.createFragment("body two", "ai", "Title Two", null);
+    core.saveMemory([f1, f2]);
+
+    const result = await handlers.handleMemoryRead({ ids: [f1.id, f2.id] });
+    assert.ok(!result.isError);
+    const sc = result.structuredContent as any;
+    assert.equal(sc.count, 2);
+    assert.equal(sc.fragments.length, 2);
+    const titles = sc.fragments.map((x: any) => x.title).sort();
+    assert.deepEqual(titles, ["Title One", "Title Two"]);
+    const bodies = sc.fragments.map((x: any) => x.fragment).sort();
+    assert.deepEqual(bodies, ["body one", "body two"]);
+  });
+});

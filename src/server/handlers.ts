@@ -908,12 +908,14 @@ export async function handleMemoryRead(args?: MemoryReadArgs): Promise<ToolResul
     logger.debug("memory_read batch_ids", { ids: detailIds });
     const results: string[] = [];
     const readIds: string[] = [];
+    const foundFragments: any[] = [];
     for (const did of detailIds) {
       const fragment = core.getFragmentById(did);
       if (fragment) {
         const boosted = core.boostOnAccess(fragment, context);
         results.push(core.formatMemoryDetail(boosted));
         readIds.push(did);
+        foundFragments.push(boosted);
       } else {
         logger.warn("memory_read batch_id not_found", { id: did });
         results.push(`Fragment [${did}] not found.`);
@@ -926,7 +928,16 @@ export async function handleMemoryRead(args?: MemoryReadArgs): Promise<ToolResul
       content: [{ type: "text", text: results.join("\n\n") }],
       structuredContent: {
         count: readIds.length,
-        fragments: readIds.map((rid: string) => ({ id: rid })),
+        fragments: foundFragments.map((f: any) => ({
+          id: f.id,
+          title: f.title,
+          description: f.description ?? null,
+          type: f.type ?? "fact",
+          confidence: f.confidence,
+          project: f.project ?? null,
+          fragment: f.fragment ?? null,
+          created: f.created ?? null,
+        })),
         has_more: false,
         next_offset: null,
       },
@@ -952,7 +963,16 @@ export async function handleMemoryRead(args?: MemoryReadArgs): Promise<ToolResul
       content: [{ type: "text", text: core.formatMemoryDetail(boosted) }],
       structuredContent: {
         count: 1,
-        fragments: [{ id: detailId }],
+        fragments: [{
+          id: detailId,
+          title: boosted.title,
+          description: boosted.description ?? null,
+          type: boosted.type ?? "fact",
+          confidence: boosted.confidence,
+          project: boosted.project ?? null,
+          fragment: boosted.fragment ?? null,
+          created: boosted.created ?? null,
+        }],
         has_more: false,
         next_offset: null,
       },
