@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.18.1] - 2026-06-26
+
+Hotfix: the 0.18.0 `postinstall` hook (`node dist/server/install-skill.js`) failed where `dist/` is absent — most importantly Lemma's own CI (`npm ci` runs postinstall before the build step) and anyone cloning the source repo (where `dist/` is gitignored). Published-package consumers were unaffected because the tarball ships `dist/`.
+
+### Fixed
+- **Guarded postinstall bootstrap** (`scripts/postinstall.mjs`): runs `installSkill()` only when `dist/server/install-skill.js` exists; otherwise it is a no-op that exits 0. Real consumers (dist shipped) still get the SKILL.md written on install/upgrade; source clones and CI no longer break.
+- Added `scripts/postinstall.mjs` to the npm `files` allowlist so the bootstrap ships with the package.
+
+### Verified
+- `node scripts/postinstall.mjs` writes SKILL.md when `dist/` is present (exit 0).
+- `node scripts/postinstall.mjs` is a no-op (exit 0) when `dist/` is absent — CI/clone scenario.
+- `npm run build`, `npm run typecheck`, `npm run test:server` (281/281).
+
 ## [0.18.0] - 2026-06-26
 
 Codex compatibility release. Codex CLI does **not** inject the MCP server `instructions` field into the system prompt the way Claude Code does — it only uses it as a namespace tool description — so Lemma's "recall → act → persist" rules never reached the model as a system instruction, and the LLM did not auto-call Lemma tools without manual prompting. This release installs a `SKILL.md` to `~/.agents/skills/lemma/` — the open skill format that Codex (and Claude Code) load into the system prompt via progressive disclosure — giving those clients a reliable channel for Lemma's usage rules on install/upgrade and on every server start. The existing MCP `instructions` flow is unchanged; this is an additive, Codex-friendly side channel.
