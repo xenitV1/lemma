@@ -1,6 +1,6 @@
 {
   "name": "lemma-mcp",
-  "version": "0.17.2",
+  "version": "0.18.0",
   "description": "Persistent memory layer for LLMs via MCP",
   "type": "module",
   "main": "dist/index.js",
@@ -24,6 +24,7 @@
   "scripts": {
     "build": "tsc && node -e \"const fs=require('fs');const p=require('path');const s=p.join('assets','visualizer.html');const d=p.join('dist','server','visualizer.html');if(fs.existsSync(s)){fs.mkdirSync(p.dirname(d),{recursive:true});fs.copyFileSync(s,d);console.log('Copied visualizer.html to dist/server/')}else{console.warn('Warning: assets/visualizer.html not found')}\"",
     "prepare": "npm run build",
+    "postinstall": "node dist/server/install-skill.js",
     "typecheck": "tsc --noEmit --project tsconfig.test.json",
     "start": "node dist/index.js",
     "prepublishOnly": "npm run build",

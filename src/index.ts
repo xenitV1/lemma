@@ -2,6 +2,7 @@
 import { spawn } from "child_process";
 import { startServer, runLibMode } from "./server/index.js";
 import { startVisualizeServer } from "./server/visualize.js";
+import { installSkill } from "./server/install-skill.js";
 import { VERSION } from "./version.js";
 
 const args = process.argv.slice(2);
@@ -9,6 +10,7 @@ const hasHelp = args.includes("--help") || args.includes("-h") || args.includes(
 const hasVersion = args.includes("--version") || args.includes("-V");
 const hasLib = args.includes("-lib") || args.includes("--library");
 const hasVisualizer = args.includes("-vis") || args.includes("--visualize");
+const hasInstallSkill = args.includes("--install-skill");
 
 function printHelp(): void {
   console.log(`Lemma ${VERSION}
@@ -20,6 +22,7 @@ Usage:
   lemma -vis --fg       Start the visualizer in the foreground
   lemma -vis -p 8080    Start the visualizer on a custom port
   lemma --version       Print the version
+  lemma --install-skill Install/update the Lemma skill at ~/.agents/skills/lemma/
   lemma --help          Show this help
 `);
 }
@@ -45,6 +48,10 @@ async function main(): Promise<void> {
     process.exit(0);
   } else if (hasLib) {
     await runLibMode();
+  } else if (hasInstallSkill) {
+    const result = installSkill();
+    console.log(`[lemma] skill: ${result.reason ?? "done"} -> ${result.path}`);
+    process.exit(0);
   } else if (hasVisualizer) {
     const port = parsePortArg();
 

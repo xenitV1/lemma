@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.18.0] - 2026-06-26
+
+Codex compatibility release. Codex CLI does **not** inject the MCP server `instructions` field into the system prompt the way Claude Code does — it only uses it as a namespace tool description — so Lemma's "recall → act → persist" rules never reached the model as a system instruction, and the LLM did not auto-call Lemma tools without manual prompting. This release installs a `SKILL.md` to `~/.agents/skills/lemma/` — the open skill format that Codex (and Claude Code) load into the system prompt via progressive disclosure — giving those clients a reliable channel for Lemma's usage rules on install/upgrade and on every server start. The existing MCP `instructions` flow is unchanged; this is an additive, Codex-friendly side channel.
+
+### Added
+- **Auto-installed `SKILL.md` at `~/.agents/skills/lemma/SKILL.md`.** Codex and other skill-format clients discover Lemma's usage rules (workflow, two knowledge layers, full 20-tool inventory, fragment format, relations) and load them into the system prompt when a task matches the skill description.
+- **`npm postinstall` hook** (`node dist/server/install-skill.js`) writes/updates the skill file on `npm install lemma-mcp` and `npm update` — no manual setup needed by the user.
+- **Runtime safety net:** `startServer()` re-checks the skill file on every launch (idempotent, version-gated), so the file stays current even for users who run via `npx` or never reinstall.
+- **`lemma --install-skill` CLI** to manually (re)install/update the skill file.
+- New modules `src/server/skill-content.ts` (skill content + version stamp) and `src/server/install-skill.ts` (idempotent installer; serves postinstall, CLI, and runtime).
+
+### Changed
+- `src/index.ts` dispatches the new `--install-skill` flag.
+- `installSkill` accepts an optional `{ skillDir }` override (testability); defaults to `~/.agents/skills/lemma/`. Production behavior unchanged.
+
+### Verified
+- `npm run typecheck`
+- `npm run test:server` (281/281, +9 new install-skill tests)
+- `npm run build`
+- Manual: postinstall write, idempotency (same-version skip), version-stamp upgrade (older → current), server runtime hook log, `-lib`/`-vis` modes unchanged.
+
 ## [0.17.2] - 2026-06-26
 
 Hotfix: `memory_read` single-id and batch (`ids`) paths returned only `{id}` in `structuredContent.fragments`, stripping title/type/fragment/confidence/project. The text body (`content[0].text`) still carried the full detail via `formatMemoryDetail`, but MCP clients that consume `structuredContent` (the path advertised by `outputSchema`) saw empty fragments — so `memory_read id="..."` and `session_start` preloaded memories appeared content-less. This was a regression introduced by the 0.16.0 outputSchema alignment, where the batch/single paths were collapsed to `{id}` objects to satisfy schema validation without restoring the real fields.

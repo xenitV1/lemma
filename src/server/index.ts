@@ -13,6 +13,7 @@ import * as virtualSession from "../sessions/virtual.js";
 import { BASE_SYSTEM_PROMPT, buildInstructions, buildInjectedTools } from "./system-prompt.js";
 import { TOOLS } from "./tools.js";
 import { handleCallTool, autoStartSession, autoEndSession } from "./handlers.js";
+import { installSkill } from "./install-skill.js";
 import { triggerHook, HookTypes } from "./hooks.js";
 import * as core_config from "../memory/config.js";
 import { initDatabase, getDb } from "../db/index.js";
@@ -346,6 +347,19 @@ export async function startServer(): Promise<void> {
   };
 
   await initializeContext();
+
+  // Runtime safety net: ensure the Lemma SKILL.md exists and is current for
+  // skill-format clients (e.g. Codex, which does not inject MCP `instructions`
+  // into the system prompt). Idempotent — a no-op when already up to date.
+  try {
+    const skillResult = installSkill();
+    logger.flow("server", "skill_install", skillResult);
+    if (skillResult.installed) {
+      logger.info(`Skill installed: ${skillResult.path} (${skillResult.reason})`);
+    }
+  } catch (e) {
+    logger.warn("Skill install failed", (e as Error).message);
+  }
 
   const activeServer = createServer(buildInstructions(detectedProject));
   server = activeServer;
