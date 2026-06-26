@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { LemmaDB } from "./database.js";
 import { logger } from "../logger.js";
+import { sanitizeFtsQuery } from "./fts.js";
 import type { MemoryFragment, MemoryRelation, FragmentType, MemoryStats } from "../types.js";
 
 function generateLegacyId(): string {
@@ -75,14 +76,6 @@ function resolveId(lemmaDb: LemmaDB, idOrLegacy: string | number): number | null
     .prepareCached("SELECT id FROM memories WHERE legacy_id = ?")
     .get(idOrLegacy) as { id: number } | undefined;
   return row?.id ?? null;
-}
-
-function sanitizeFtsQuery(input: string): string {
-  return input
-    .replace(/[\p{P}\p{S}]/gu, " ")
-    .split(/\s+/)
-    .filter((t) => t.length > 0)
-    .join(" OR ");
 }
 
 export function addMemory(

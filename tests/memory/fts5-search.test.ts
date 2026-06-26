@@ -203,4 +203,29 @@ describe("FTS5 Memory Search", () => {
     const overlaps = await core.findTopicOverlaps(frags, "React component architecture", null, 3);
     assert.ok(overlaps.length <= 3);
   });
+
+  test("findSimilarByText handles fragments containing FTS boolean operators (no syntax error)", () => {
+    // Regression: previously "Use OR and NOT to combine NEAR clauses" built a raw
+    // FTS query like "... OR NOT ... NEAR ..." which threw "fts5: syntax error near OR".
+    const frag = makeFrag("Use OR and NOT to combine NEAR clauses in queries", "proj");
+    core.saveMemory([frag]);
+
+    const match = core.findSimilarByText("Use OR and NOT to combine NEAR clauses in queries", "proj", 0.8);
+    assert.ok(match, "should self-match without throwing an fts5 syntax error");
+    assert.equal(match!.id, frag.id);
+  });
+
+  test("findSimilarByText does not throw on a fragment consisting only of operator words", () => {
+    const frag = makeFrag("OR AND NOT NEAR alone", "proj");
+    core.saveMemory([frag]);
+
+    let threw = false;
+    try {
+      const m = core.findSimilarByText("OR AND NOT NEAR", "proj", 0.8);
+      assert.ok(m === null || typeof m === "object");
+    } catch {
+      threw = true;
+    }
+    assert.equal(threw, false, "must not throw fts5 syntax error");
+  });
 });

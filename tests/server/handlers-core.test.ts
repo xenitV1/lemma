@@ -267,6 +267,29 @@ describe("Handlers (Integration)", () => {
       });
       assert.equal(result.isError, true);
     });
+
+    test("memory_update allows update when content shares only a common word (<80% overlap)", async () => {
+      // Regression for the false-positive "Similar fragment already exists": the
+      // two fragments share only the token "COS", so the update must NOT be blocked.
+      const a = core.createFragment("COS provisioning workflow configuration details for adapters", "ai", "COS Provisioning", "testproj");
+      const b = core.createFragment("COS API rate limit raised to maximum threshold", "ai", "COS Rate Limit", "testproj");
+      core.saveMemory([a, b]);
+
+      const result = await handlers.handleCallTool({
+        params: { name: "memory_update", arguments: { id: b.id, fragment: "COS API rate limit now set higher than before" } }
+      });
+      assert.ok(!result.isError, `low-overlap update must not be blocked: ${result.content?.[0]?.text}`);
+    });
+
+    test("memory_update with FTS operator words does not throw a syntax error", async () => {
+      const frag = core.createFragment("original content about React components", "ai", "Original", "testproj");
+      core.saveMemory([frag]);
+
+      const result = await handlers.handleCallTool({
+        params: { name: "memory_update", arguments: { id: frag.id, fragment: "Use OR and NOT to combine NEAR clauses in queries" } }
+      });
+      assert.ok(!result.isError, `operator-word update must not fail with fts5 syntax error: ${result.content?.[0]?.text}`);
+    });
   });
 });
 

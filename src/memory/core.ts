@@ -7,6 +7,7 @@ import { logger } from "../logger.js";
 
 import { getDb, setDataDir } from "../db/database.js";
 import * as store from "../db/memory-store.js";
+import { sanitizeFtsQuery } from "../db/fts.js";
 
 let MEMORY_DIR = path.join(os.homedir(), ".lemma");
 
@@ -143,11 +144,7 @@ export async function findSimilarFragment(fragments: MemoryFragment[], fragmentT
 
   try {
     const db = getDb();
-    const ftsQuery = fragmentText
-      .replace(/[\p{P}\p{S}]/gu, " ")
-      .split(/\s+/)
-      .filter(t => t.length > 0)
-      .join(" OR ");
+    const ftsQuery = sanitizeFtsQuery(fragmentText);
 
     if (!ftsQuery) {
       logger.flow("dedup", "no_similar");
@@ -238,11 +235,7 @@ export async function findTopicOverlaps(fragments: MemoryFragment[], fragmentTex
 
   try {
     const db = getDb();
-    const ftsQuery = fragmentText
-      .replace(/[\p{P}\p{S}]/gu, " ")
-      .split(/\s+/)
-      .filter(t => t.length > 0)
-      .join(" OR ");
+    const ftsQuery = sanitizeFtsQuery(fragmentText);
 
     if (ftsQuery) {
       let sql: string;
@@ -856,14 +849,10 @@ export function migrateConfidenceFloor(): number {
   return migrated;
 }
 
-export function findSimilarByText(text: string, project: string | null, threshold: number = 0.80): MemoryFragment | null {
+export function findSimilarByText(text: string, project: string | null, threshold: number = 0.80, excludeId?: string): MemoryFragment | null {
   try {
     const db = getDb();
-    const ftsQuery = text
-      .replace(/[\p{P}\p{S}]/gu, " ")
-      .split(/\s+/)
-      .filter(t => t.length > 0)
-      .join(" OR ");
+    const ftsQuery = sanitizeFtsQuery(text);
 
     if (!ftsQuery) return null;
 
@@ -909,6 +898,7 @@ export function findSimilarByText(text: string, project: string | null, threshol
       const queryWords = new Set(text.toLowerCase().split(/\s+/).filter(w => w.length > 1));
       if (queryWords.size === 0) return null;
       for (const row of rows) {
+        if (excludeId && (row.legacy_id as string) === excludeId) continue;
         const fragText = (row.fragment as string) || "";
         const fragWords = new Set(fragText.toLowerCase().split(/\s+/).filter(w => w.length > 1));
         let overlap = 0;

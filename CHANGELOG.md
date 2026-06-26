@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.18.2] - 2026-06-26
+
+Hotfix for two recurring `memory_update` failures. (1) `fts5: syntax error near "OR"` whenever a fragment body contained the words OR/AND/NOT/NEAR — lemma fed user content into the FTS5 query unquoted, so FTS5 parsed those words as boolean operators. (2) A false-positive `Similar fragment already exists` blocked legitimate updates whenever the new text shared even a single common token (e.g. "COS") with any other fragment, because `memory_update`'s dedup had no similarity threshold (unlike `memory_add`).
+
+### Fixed
+- **FTS5 operator-injection** — added a shared `sanitizeFtsQuery` (`src/db/fts.ts`) that double-quotes each token, so AND/OR/NOT/NEAR and reserved characters in fragment/search text are matched as literals instead of parsed as query syntax. Wired into all five user-content FTS sites (`memory-store.ts` search, `findSimilarFragment`, `findTopicOverlaps`, `findSimilarByText`, and the `memory_update` dedup). The guide prefix-wildcard sites (which cannot be quoted without breaking prefix matching) now filter boolean-operator tokens via `FTS_BOOLEAN_OPS`, and `STOP_WORDS` gained `"near"`.
+- **`memory_update` false-positive dedup** — the inline FTS top-3 check is replaced with `findSimilarByText(..., 0.80, excludeId)`, giving it the same word-overlap threshold `memory_add` already used, and excluding the fragment being updated so editing it never matches itself.
+
+### Verified
+- `npm run typecheck`
+- `npm test` (736/736, +4 regression tests: FTS operator-word fragments survive `findSimilarByText`/`memory_add`/`memory_update` without syntax errors; low-overlap `memory_update` no longer blocked)
+
 ## [0.18.1] - 2026-06-26
 
 Hotfix: the 0.18.0 `postinstall` hook (`node dist/server/install-skill.js`) failed where `dist/` is absent — most importantly Lemma's own CI (`npm ci` runs postinstall before the build step) and anyone cloning the source repo (where `dist/` is gitignored). Published-package consumers were unaffected because the tarball ships `dist/`.

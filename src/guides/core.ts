@@ -282,7 +282,7 @@ export function findSimilarGuide(guides: Guide[], guideName: string): Guide | nu
     const db = getDb();
     const terms = normalized
       .split(/\s+/)
-      .filter(t => t.length > 1)
+      .filter(t => t.length > 1 && !FTS_BOOLEAN_OPS.has(t))
       .map(t => `${t}*`)
       .join(" OR ");
 
@@ -827,7 +827,7 @@ export function findSimilarGuideByName(name: string): Guide | null {
     const db = getDb();
     const terms = normalized
       .split(/\s+/)
-      .filter(t => t.length > 1)
+      .filter(t => t.length > 1 && !FTS_BOOLEAN_OPS.has(t))
       .map(t => `${t}*`)
       .join(" OR ");
 
@@ -874,11 +874,15 @@ const STOP_WORDS = new Set([
   "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
   "of", "with", "by", "from", "is", "it", "as", "be", "was", "are",
   "been", "being", "have", "has", "had", "do", "does", "did", "will",
-  "would", "could", "should", "may", "might", "can", "shall", "not",
+  "would", "could", "should", "may", "might", "can", "shall", "not", "near",
   "this", "that", "these", "those", "i", "we", "you", "he", "she",
   "they", "me", "us", "him", "her", "them", "my", "our", "your",
   "how", "what", "which", "who", "whom", "when", "where", "why",
 ]);
+
+// FTS5 boolean operators — must be filtered out of unquoted prefix (${t}*)
+// queries, otherwise "or"/"and"/"not"/"near" tokens crash with a syntax error.
+const FTS_BOOLEAN_OPS = new Set(["and", "or", "not", "near"]);
 
 export function suggestGuidesForTask(taskDescription: string): { guides: Array<{ name: string; relevance: number; reason: string }> } {
   const keywords = taskDescription

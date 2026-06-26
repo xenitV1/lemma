@@ -1293,26 +1293,13 @@ export async function handleMemoryUpdate(args?: MemoryUpdateArgs): Promise<ToolR
         isError: true,
       };
     }
-    const db = getDb();
-    const ftsQuery = fragment.replace(/[\p{P}\p{S}]/gu, " ").split(/\s+/).filter(t => t.length > 0).join(" OR ");
-    if (ftsQuery) {
-      const projectFilter = target.project
-        ? ` AND (m.project = ? OR m.project IS NULL)`
-        : ` AND m.project IS NULL`;
-      const params: string[] = target.project
-        ? [ftsQuery, target.project.toLowerCase()]
-        : [ftsQuery];
-      const rows = db.prepareCached(
-        `SELECT m.legacy_id as id, m.title FROM memory_fts fts JOIN memories m ON m.id = fts.rowid WHERE memory_fts MATCH ?${projectFilter} ORDER BY bm25(memory_fts) LIMIT 3`
-      ).all(...params) as { id: string; title: string }[];
-      const existing = rows.find(r => r.id !== id);
-      if (existing) {
-        logger.warn("memory_update duplicate_detected", { id, similar_id: existing.id });
-        return {
-          content: [{ type: "text", text: `Error: Similar fragment already exists: [${existing.id}] "${existing.title}". Use a different content or update the existing one.` }],
-          isError: true,
-        };
-      }
+    const similar = core.findSimilarByText(fragment, target.project ?? null, 0.80, id);
+    if (similar) {
+      logger.warn("memory_update duplicate_detected", { id, similar_id: similar.id });
+      return {
+        content: [{ type: "text", text: `Error: Similar fragment already exists: [${similar.id}] "${similar.title}". Use a different content or update the existing one.` }],
+        isError: true,
+      };
     }
     logger.debug("memory_update updating_fragment", { id });
   }
