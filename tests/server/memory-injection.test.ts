@@ -280,6 +280,40 @@ describe("buildInjectedTools", () => {
     assert.ok(memRead.description.includes("PERSISTENT MEMORY"), "memory_read should still carry memory content");
   });
 
+  test("injected memory carries semantic confidence label + age, not a raw float", async () => {
+    const frags = [core.createFragment("fresh injected knowledge", "ai", "Fresh Item", "p")];
+    core.saveMemory(frags);
+    const result = await buildInjectedTools("p");
+    const memRead = result.find(t => t.name === "memory_read");
+    assert.ok(memRead);
+    // XML-tagged with a plain-language confidence bucket + human age.
+    assert.match(memRead.description, /<memory id="[^"]+" confidence="(high|medium|low)" age="[^"]+"/);
+    // A brand-new fragment is surfaced under the RECENT section.
+    assert.ok(memRead.description.includes("RECENT"), "new fragments should appear under RECENT");
+  });
+
+  test("injection ranks by confidence×recency, not confidence alone", async () => {
+    // Old but max-confidence vs brand-new mid-confidence: recency must lift the
+    // new one so it is not starved out of a tiny full-content budget.
+    fs.writeFileSync(path.join(TMPDIR, "config.json"), JSON.stringify({
+      injection: { max_full_content_fragments: 1, max_summary_fragments: 0 },
+    }));
+    core_config.resetConfig();
+
+    const oldFrag = core.createFragment("ancient high confidence fact about widgets", "ai", "Ancient", "p");
+    oldFrag.confidence = 1.0;
+    oldFrag.created = "2020-01-01";
+    const newFrag = core.createFragment("today's discovery about gadgets", "ai", "Fresh", "p");
+    newFrag.confidence = 0.6;
+    core.saveMemory([oldFrag, newFrag]);
+
+    const result = await buildInjectedTools("p");
+    const memRead = result.find(t => t.name === "memory_read");
+    assert.ok(memRead);
+    assert.ok(memRead.description.includes("Fresh"), "recent fragment should win the full-content slot");
+    core_config.resetConfig();
+  });
+
   test("non-nudged tools keep their static description unchanged", async () => {
     const result = await buildInjectedTools(null);
     const audit = result.find(t => t.name === "memory_audit");

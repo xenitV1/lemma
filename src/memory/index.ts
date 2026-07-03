@@ -12,6 +12,7 @@ export {
   migrateConfidenceFloor,
   filterByProject,
   searchAndSortFragments,
+  injectionScore,
   filterFragments,
   formatMemoryForLLM,
   formatMemoryDetail,

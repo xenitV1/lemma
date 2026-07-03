@@ -64,11 +64,56 @@ function processFragments(fragments: MemoryFragment[], limit: number): MemoryFra
   if (!fragments || fragments.length === 0) return [];
 
   const result = [...fragments]
-    .sort((a, b) => b.confidence - a.confidence)
+    .sort((a, b) => core.injectionScore(b) - core.injectionScore(a))
     .slice(0, limit);
 
   logger.flow("system_prompt", "process_fragments", { input: fragments.length, output: result.length });
   return result;
+}
+
+/** Plain-language confidence bucket — a raw float carries no salience to the model. */
+function confidenceLabel(c: number): string {
+  if (c >= 0.75) return "high";
+  if (c >= 0.4) return "medium";
+  return "low";
+}
+
+/** Compact human age of a fragment, e.g. "today", "3d", "5mo". */
+function ageDays(created: string): number {
+  const d = (Date.now() - new Date(created).getTime()) / 86400000;
+  return isFinite(d) && d >= 0 ? d : Number.POSITIVE_INFINITY;
+}
+function ageLabel(created: string): string {
+  const d = ageDays(created);
+  if (!isFinite(d)) return "?";
+  if (d < 1) return "today";
+  if (d < 60) return `${Math.round(d)}d`;
+  return `${Math.round(d / 30)}mo`;
+}
+
+/** Fraction of the smaller token set shared — cheap near-duplicate signal. */
+function tokenOverlap(a: string, b: string): number {
+  const wa = new Set(a.toLowerCase().split(/\s+/).filter(w => w.length > 2));
+  const wb = new Set(b.toLowerCase().split(/\s+/).filter(w => w.length > 2));
+  if (wa.size === 0 || wb.size === 0) return 0;
+  let inter = 0;
+  for (const w of wa) if (wb.has(w)) inter++;
+  return inter / Math.min(wa.size, wb.size);
+}
+
+/**
+ * Greedy diversity filter: drop a fragment if it near-duplicates one already
+ * kept. Keeps the highest-ranked of each cluster so the token budget isn't
+ * spent re-injecting the same knowledge twice (AgeMem FILTER / diversity rerank).
+ * Caller passes an already-ranked list; order is preserved.
+ */
+function dropRedundant(fragments: MemoryFragment[], threshold = 0.6): MemoryFragment[] {
+  const kept: MemoryFragment[] = [];
+  for (const f of fragments) {
+    if (kept.some(k => tokenOverlap(k.fragment, f.fragment) >= threshold)) continue;
+    kept.push(f);
+  }
+  return kept;
 }
 
 export async function getDynamicSystemPrompt(projectName: string | null): Promise<string> {
@@ -248,11 +293,16 @@ export async function buildInjectedTools(projectName: string | null): Promise<To
     ? memory.filter(f => f.project === projectName)
     : [];
 
-  const allProjectFragments = [...projectFragments, ...globalFragments]
-    .sort((a, b) => b.confidence - a.confidence);
+  // Rank by blended confidence×recency (injectionScore), NOT confidence alone —
+  // then drop near-duplicates so the budget isn't spent re-injecting the same
+  // knowledge. Diversity filter is bounded to the candidate window for O(n·k).
+  const ranked = [...projectFragments, ...globalFragments]
+    .sort((a, b) => core.injectionScore(b) - core.injectionScore(a));
+  const candidateWindow = ranked.slice(0, maxFullCount + maxSummaryCount + 20);
+  const deduped = dropRedundant(candidateWindow, 0.6);
 
-  const fullContentFrags = allProjectFragments.slice(0, maxFullCount);
-  const summaryFrags = allProjectFragments.slice(maxFullCount, maxFullCount + maxSummaryCount);
+  const fullContentFrags = deduped.slice(0, maxFullCount);
+  const summaryFrags = deduped.slice(maxFullCount, maxFullCount + maxSummaryCount);
 
   const activeGuides = [...allGuides]
     .filter((g: any) => !g.deprecated && !g.superseded_by)
@@ -262,21 +312,36 @@ export async function buildInjectedTools(projectName: string | null): Promise<To
   let injection = "\n\n---\nYOUR PERSISTENT MEMORY (injected automatically):\n\n";
 
   if (fullContentFrags.length > 0) {
-    let fullText = "";
+    // Split fresh (<=7d) from established so the model sees recency at a glance
+    // (llm-wiki log/index split). Each entry is XML-tagged with a plain-language
+    // confidence label + age — a raw float carries no salience to the model.
+    const formatEntry = (f: MemoryFragment): string => {
+      const fragmentText = redactSecrets(f.fragment).redacted;
+      return `<memory id="${f.id}" confidence="${confidenceLabel(f.confidence)}" age="${ageLabel(f.created)}" source="${f.source}">\n${f.title}\n${fragmentText}\n</memory>\n`;
+    };
+
+    const recent = fullContentFrags.filter(f => ageDays(f.created) <= 7);
+    const established = fullContentFrags.filter(f => ageDays(f.created) > 7);
+
     let fullTokenBudget = maxFullTokens;
+    const emit = (frags: MemoryFragment[], header: string): string => {
+      let text = "";
+      for (const f of frags) {
+        const entry = formatEntry(f);
+        const entryTokens = core_config.estimateTokens(entry);
+        if (fullTokenBudget - entryTokens < 0) break;
+        text += entry;
+        fullTokenBudget -= entryTokens;
+      }
+      return text ? `${header}\n${text}` : "";
+    };
 
-    for (const f of fullContentFrags) {
-      let fragmentText = f.fragment;
-      fragmentText = redactSecrets(fragmentText).redacted;
-      const entry = `[${f.id}] ${f.title} (${f.confidence.toFixed(2)}, ${f.source})\n${fragmentText}\n\n`;
-      const entryTokens = core_config.estimateTokens(entry);
-      if (fullTokenBudget - entryTokens < 0) break;
-      fullText += entry;
-      fullTokenBudget -= entryTokens;
-    }
-
-    if (fullText) {
-      injection += `== FULL MEMORY CONTENT ==\n${fullText}`;
+    // Header kept ("FULL MEMORY CONTENT") for backward-compatible detection.
+    let fullText = "== FULL MEMORY CONTENT ==\n";
+    fullText += emit(recent, "-- RECENT (last 7 days) --");
+    fullText += emit(established, "-- ESTABLISHED --");
+    if (fullText.trim() !== "== FULL MEMORY CONTENT ==") {
+      injection += fullText;
     }
   }
 

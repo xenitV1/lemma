@@ -175,7 +175,7 @@ export const TOOLS: ToolDefinition[] = [
   },
   {
     name: "memory_read",
-    description: "Read memory fragments. SUMMARY MODE: Shows title + description only (not full content). Use id parameter to get full detail of a specific fragment. Use all=true to see fragments from all projects.",
+    description: "START HERE — call this FIRST at the beginning of every task to recall what you already know before doing any work (never re-derive or re-explore facts that may already be saved). Reads memory fragments. SUMMARY MODE: shows title + description only (not full content). Use id parameter to get full detail of a specific fragment. Use all=true to see fragments from all projects.",
     inputSchema: {
       additionalProperties: false,
       type: "object",

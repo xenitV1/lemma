@@ -1,0 +1,125 @@
+# Lemma Development Roadmap
+
+> Research-grounded roadmap derived from a first-hand reading of the full
+> `docs/research/` corpus mapped against the **actual shipped code**. Replaces the
+> earlier roadmap (removed: it claimed an embeddings layer that was never built).
+> Every item cites its source paper and carries a **compatibility risk** tag,
+> because Lemma has 1000+ live installs — nothing here may break an existing DB,
+> tool contract, or client integration.
+
+## Vision & hard constraints
+
+Be the AI's brain: **offline-first · minimal runtime deps** (`@modelcontextprotocol/sdk` + `better-sqlite3` only) · **LLM-free core** (the server never calls an LLM; the calling agent is the only model, driving everything through MCP tools) · **single SQLite** (`~/.lemma/lemma.db`) · **backward compatible** · **cross-platform incl. Windows**. New capability is added as a **parameter on an existing tool** first; a new tool only when a genuinely new interaction is required.
+
+Research reinforces the frugal design: the Agent-Native Memory survey (arXiv:2606.24775) finds multi-engine (vector+graph+SQL) stores pay **orders-of-magnitude latency for marginal accuracy (O5)**, and every extraction/summarization layer **discards information (O6)** — so single-SQLite + verbatim `memory_add` is empirically the right call, not a compromise.
+
+---
+
+## Compatibility & safety contract (non-negotiable — 1000+ installs)
+
+Every roadmap item MUST satisfy all of these, or it does not ship:
+
+1. **Additive schema only.** New tables/columns via a new `MIGRATIONS` entry, gated by `schema_version`. Never drop/rename/retype an existing column. Migrations must be idempotent (safe to re-run) and forward-only.
+2. **No destructive data ops by default.** Consolidation/eviction/decay must archive or down-weight, never hard-delete user data unless the user explicitly calls `memory_forget`. (Directly supported by SDFT on-policy retention + survey O4.)
+3. **Tool contract is frozen.** The 26 tool names, their existing parameters, and their `outputSchema`/`structuredContent` shapes stay stable. New capability = a new **optional** parameter that defaults to today's behavior. A new tool only as a last resort.
+4. **Behavior changes are opt-out-safe.** Any change to ranking/injection/decay must degrade gracefully on old data and be reversible via `~/.lemma/config.json`. Prefer a config key with today's behavior as an explicit fallback.
+5. **Migrations are one-way-safe but data-preserving.** A user who upgrades then downgrades must not lose fragments (older code simply ignores new tables/columns).
+6. **Test-gated.** Each item ships with tests, keeps the full suite green (currently 738), and adds a migration test proving an old DB opens clean.
+7. **Injected-text format is LLM-facing, not an API.** The `memory_read` blob / SKILL.md wording may evolve; but never assume a client parses it — so these changes are low-risk by construction.
+
+Risk tags used below: **[compat: none]** additive/opt-in · **[compat: behavior]** changes output the LLM sees (not an API break) · **[compat: migration]** touches schema, needs a gated migration + downgrade check.
+
+---
+
+## Current implementation reality (verified from source)
+
+**Built & working:** SQLite memories + FTS5/BM25; confidence dynamics (`boostOnAccess` +0.015 / `recordNegativeHit` −0.02 / passive decay −0.002·day, 24h-gated / 0.3 floor); TF-IDF cosine `semantic_search`; relations with auto-reverse trigger; heuristic conflict detection (report-only); rich proactive suggestions; guides with usage/success/failure/learnings; virtual sessions auto-capturing tool traces.
+
+**Designed but never wired (archaeology gap — see `self-improvement-architecture.md`):** `quality_score` column exists but is never populated; the `sessions`/`session_attempts` SQL tables exist but `finalizeVirtualSession()` writes **flat JSON** instead; three designed tools (`self_critique`, `guide_refine`, `memory_summarize`) were never built; Design Principle #7 "self-consistency as confidence" never implemented.
+
+---
+
+## Net-new findings from a full first-hand reading of the corpus
+
+Cheap, LLM-free, vision-fit refinements the earlier extraction under-emphasized:
+
+- **N1 — Ebbinghaus decay, not linear.** `llm-wiki-v2` prescribes an *exponential* retention curve that **resets on each reinforcement**, with type-dependent rates ("architecture decisions decay slowly, transient bugs fast"). Lemma's decay is a flat −0.002/day, type-blind. Fix: exponential decay off `last_accessed_at` (access truly resets) + per-type half-lives.
+- **N2 — Episodic tier is the missing layer.** Consolidation tiers = working → **episodic** → semantic → procedural. Lemma has semantic (memories) + procedural (guides) but no episodic layer — exactly what C1 builds.
+- **N3 — Crystallization.** A finished session should distill into a digest AND spin off its lessons as standalone `lesson` fragments. Lemma's `session_end` nudges a single summary today.
+- **N4 — Contradiction *resolution*, not just detection.** After a conflict, propose which claim wins by recency × confidence × support-count (survey O3).
+- **N5 — Do NOT auto-refine.** EVOLVE proves LLMs have no inherent self-refinement and *degrade* when naively refining; Self-Refine shows feedback quality is the bottleneck. Hard rule: Lemma surfaces structured history/suggestions; the calling agent decides. Never add an autonomous background refine loop.
+- **N6 — Guides must carry preconditions.** Intrinsic Self-Critique works only when the critique embeds domain definition + preconditions — that belongs in guide `learnings`/`anti_patterns`.
+
+### Addenda from the full paper (arXiv:2606.24775v1 HTML) + benchmark repo (OpenDataBox/MemoryData)
+
+A cross-check against the complete paper and its evaluation suite surfaced concrete mechanisms the markdown summary omitted:
+
+- **N7 — Sequential-Hybrid retrieval (cheap prefilter first).** The paper names two hybrid styles; the cheaper one applies **strict SQL predicate filters (date/project/type) BEFORE** the expensive semantic step. Fold into **A4**: run a `WHERE project/type/date` prefilter, then TF-IDF/BM25 rank, then RRF — far cheaper than embedding everything. Pure SQLite.
+- **N8 — Use MMR for the diversity rerank.** A2 shipped as a homegrown token-overlap filter; the standard is **Maximal Marginal Relevance** `score = λ·rel − (1−λ)·max_sim_to_selected`. Upgrade A2 to real MMR (λ≈0.7) — same cost, principled.
+- **N9 — Logical invalidation, not a second table.** Temporal-KG systems resolve conflicts via a **validity flag + ISO-8601 chronological precedence** (logical invalidation, never physical delete) + hash-based dedup. Lightweight alternative/complement to B2's history table: a nullable `invalidated_at` column so a superseded fact is hidden from recall but preserved. Feeds B2 + B4.
+- **N10 — Named consolidation variants (MemoryOS).** **Conservative-Merge** = require a *higher* topic-similarity threshold before assimilating (fewer, safer merges). **Delayed-Flush** = an enlarged short-term buffer before backend writes (= the working-memory tier). Sharpens B3 and the working buffer.
+- **N11 — Localized maintenance is a hard cost cliff (O7).** Concrete latencies: LightMem 48.3 utility @ **3.67 s/query**, MemoryOS 82.0 @ **28.6 s**, Cognee 84+ only after **116.5 s**, Zep **155.1 s**. Whole-memory reorganization dominates cost. **Rule for 1000+ installs: every maintenance op (eviction, decay, consolidation, conflict scan) must be localized/incremental — never a global rebuild.** Directly governs B1/B3/C3.
+- **N12 — Evidence-distance-aware ranking.** Retrieval quality tracks how evidence is organized for reconstruction, not top-1 rank; recent vs distant facts warrant different handling. Extends D1's recent/established split into ranking, not just display.
+- **Eval harness (tooling, optional).** MemoryData tests four capability families — **Accurate Retrieval · Conflict Resolution · Test-Time Learning · Multi-session**. Its own harness needs LLM+embeddings+Python (out of Lemma's core), but the *task taxonomy* is a blueprint for a tiny LLM-free retrieval-quality self-test: "does `memory_read`/`semantic_search` surface the known-relevant fragment for a query?" Worth a `tests/eval/` fixture, not a runtime dep.
+
+---
+
+## Research → principle → gap map
+
+| Principle (source) | Lemma today | Item |
+|---|---|---|
+| Composite recall = confidence × recency (llm-wiki-v2; survey O2) | ✅ fixed (A1) | done |
+| Injection-time redundancy FILTER (AgeMem) | ✅ diversity de-dup (A2) | done |
+| Salient, structured injected context (prompt-engineering; XML bias) | ✅ tags + labels + recent/established (D1) | done |
+| Exponential type-aware forgetting (llm-wiki-v2) | ⚠️ flat, type-blind | B5 |
+| Append-only → "hallucinations of the past" (survey O3/O4) | ⚠️ mostly append-only | B4, B2 |
+| Conservative consolidation, keep chronology (survey O4/O6; SDFT) | ⚠️ merge/forget hard-delete | B3 |
+| Score-based "Heat" eviction (survey 2.4) | ❌ unbounded growth | B1 |
+| Multi-stage hybrid retrieval (survey 2.3) | ⚠️ BM25 + TF-IDF separate | A4 |
+| Topological subgraph traversal (survey 2.3) | ⚠️ manual single-hop | A3 |
+| Episodic tier / raw-trace preservation (llm-wiki-v2; survey O6) | ⚠️ traces in flat JSON | C1 |
+| Refine the weakest unit (SSR); specific > generic feedback (Self-Refine) | ❌ wholesale; nudges generic | C2, D2 |
+| Self-consistency as free confidence (survey; Self-Critique; SSR) | ❌ | C4 |
+
+---
+
+## Phased roadmap
+
+### v0.18.3 — Wave 1: injection quality (SHIPPED)
+- **A1** injectionScore consistency · **A2** diversity de-dup · **D1** XML tags + confidence labels + recent/established. Plus the Codex fix (imperative SKILL.md description + `memory_read` "START HERE"). **[compat: behavior]** — only the LLM-facing text/order changed; 738 tests green.
+
+### v0.19 — Wave 2: lifecycle robustness & self-improvement loop
+Small, additive, high value:
+- **B3** Non-destructive consolidation — `memory_merge`/`memory_forget` supersede + decay instead of hard-delete (SDFT; survey O4). Use **Conservative-Merge (N10)**: require a higher topic-similarity threshold before assimilating. **[compat: behavior]** — add a `consolidate` mode; default path unchanged.
+- **B4** Auto-`supersedes` *suggestion* on high-confidence conflict + −0.1 spot decay to the older fragment, with N4's win-heuristic (recency × confidence × support, ISO-8601 precedence per N9). Optionally set a logical `invalidated_at` (N9) instead of deleting. `conflict.ts` today only reports. **[compat: none/migration]** — suggestion-only; the `invalidated_at` column is additive.
+- **B5** Ebbinghaus + type-aware decay (N1). **[compat: behavior]** — new decay curve behind a `decay.model` config key defaulting to today's linear until validated, then flipped.
+- **C2** Revive the dead `quality_score` as a formula `f(confidence, pos−neg, usage, staleness, refinement_count)`; below threshold → `improvement_suggestion` citing the exact triggering counters (SSR; Self-Refine specificity). **[compat: none]** — fills an unused column, emits suggestions.
+- **C3** Two-tier gated verification for `proactive_analysis`/`conflict_scan` (SSR-Ada). **[compat: none]** — internal efficiency only.
+- **D2** Parameterize nudges with actual session content + "this reminder stops once you save" (Self-Refine; llm-wiki-v2 habituation). **[compat: behavior]**
+- **D3** Fill `TOOL_NUDGES` gaps + a "worth saving?" quality gate line on `memory_add`'s description (llm-wiki-v2 noise warning). **[compat: behavior]**
+
+### v0.20 — Wave 3: structural (schema-additive)
+- **C1** **Highest value — the missing episodic tier (N2).** Persist virtual sessions to the `sessions`/`session_attempts` SQL tables (stop the flat-JSON bypass), re-surface dead-end attempts as a contextual growing chain (Intrinsic Self-Critique τ; EVOLVE "chain not few-shot"), and add crystallization (N3). **[compat: migration]** — new writes only; existing JSON session files remain readable; downgrade-safe.
+- **B1** Capacity-driven "Heat" eviction to a new `fragments_archive` table (share the injectionScore/Heat formula; never hard-delete). **[compat: migration]** — archive table is additive; eviction threshold config-gated and high by default.
+- **B2** `fragment_history` versioning via `AFTER UPDATE` trigger (same pattern as the reverse-relation trigger); pair with a logical `invalidated_at` flag (N9) so superseded facts are hidden from recall but preserved (survey: logical invalidation, never physical delete). **[compat: migration]** — additive table + column + trigger.
+- **A3** Bounded-depth graph traversal over `relations` — `WITH RECURSIVE`, depth ≤ 2, `0.6^depth` penalty, fan-out ≤ 5 — as `memory_read expand_graph:true`. **[compat: none]** — new optional param, default false.
+- **A4** Hybrid retrieval. Cheap path first (**Sequential-Hybrid, N7**): SQL predicate prefilter (project/type/date) → then rank. Rich path (**Parallel-Ensemble**): Reciprocal Rank Fusion of BM25 + TF-IDF (`Σ 1/(60+rank)`) → injectionScore rerank → optional **MMR (N8)** diversity pass. Persist TF-IDF vectors to kill the O(N)-rebuild-per-query cost. **[compat: migration]** — optional vector cache table; falls back to live compute.
+- **C4** Self-consistency-as-confidence from historical outcome divergence (Design Principle #7). **[compat: none]** — arithmetic over existing tables.
+
+### Framing note — new tools vs parameters
+The three designed-but-unbuilt tools should NOT necessarily become new tools (grow tools only on new interaction). Prefer folding them in: `memory_summarize` → a `consolidate:true` mode on `memory_merge` (B3); `guide_refine` → strengthen proactive suggestions + `guide_update` (C2), no new tool; `self_critique` → advisory-only and overlaps `session_attempt`, keep as a candidate, not a commitment.
+
+---
+
+## Explicitly rejected (hard vision conflicts)
+
+- **Real embeddings / vector DB** (AgeMem RETRIEVE; dense retrieval) — ~470 MB model + native ONNX breaks minimal-deps + Windows; survey **O5 cost-cliff** rejects multi-engine anyway. TF-IDF/BM25 stays.
+- **RL-trained memory policy + GRPO** (AgeMem) — GPU/fine-tuning/LLM-judge. Out of scope.
+- **Metacognitive self-modification** (HyperAgents/DGM) — always-on LLM + code sandbox; that is the calling agent's job.
+- **LLM abstractive SUMMARY / self-distillation / GSR synthesis / EVOLVE training** — all need a generative/always-on LLM or a training loop. Only weak extractive analogs exist and must never be presented as equivalent (N5).
+
+---
+
+## Release discipline
+
+Follow the existing convention: minor bump per feature wave (v0.19, v0.20), patch bump per fix. Each release: full test suite green + a migration test opening a pre-upgrade DB + CHANGELOG entry noting any behavior change and its config fallback.

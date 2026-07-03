@@ -1,5 +1,9 @@
 # Development Guide
 
+> Planning where Lemma goes next? See the [Roadmap](ROADMAP.md) — research-grounded,
+> with a backward-compatibility contract (1000+ live installs; nothing may break an
+> existing DB or tool contract).
+
 ## Setup
 
 ```bash

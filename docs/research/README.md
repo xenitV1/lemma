@@ -2,6 +2,10 @@
 
 Academic papers and research documents that influenced and continue to guide Lemma's development.
 
+## Agent Memory Systems (Survey & Benchmark)
+
+- **[Are We Ready For An Agent-Native Memory System?](./Agent-Native-Memory-Survey.md)** — Data-management survey that decomposes agent memory into four modules (representation/storage, extraction, retrieval/routing, maintenance) and benchmarks 12 systems across 5 workloads. Key guides for Lemma: (1) no single architecture dominates — match structure to workload; (2) graph/versioned structure handles dynamic updates best while append-only stores decay into "hallucinations of the past"; (3) conservative consolidation beats aggressive compaction because it preserves chronological cues; (4) localized maintenance is far cheaper than global reorg; (5) every extraction/summarization layer discards information, so preserve raw traces where multi-hop reasoning is expected. Read as a design guide for the roadmap (temporal/versioned memory, working-memory buffer, lifecycle cost), not a blocker.
+
 ## Memory & Continual Learning
 
 - **[Self-Distillation Enables Continual Learning](./Self-Distillation%20Enables%20Continual%20Learning.md)** — Core inspiration for Lemma's guide distillation system (`guide_distill`). Raw memory fragments are compressed into reusable procedural knowledge, mirroring self-distillation in neural networks.

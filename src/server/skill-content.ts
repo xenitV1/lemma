@@ -8,9 +8,12 @@
  * tool description. The skill file is the reliable channel for Lemma's
  * "recall → act → persist" rules on Codex.
  *
- * The frontmatter `description` is the progressive-disclosure TRIGGER and is
- * itself injected into the model context. Keep it an accurate, balanced "what
- * this is" — not an overlong directive, not too terse.
+ * The frontmatter `description` is the progressive-disclosure TRIGGER. On Codex
+ * it is the ONLY always-visible surface: the skill body (these rules) is NOT
+ * preloaded — Codex injects just this one line into the developer context and
+ * expects the model to decide to open the file. So the description must itself
+ * be an imperative that forces the first `memory_read`, not a passive "what this
+ * is". Keep it accurate and within the 1024-char frontmatter budget.
  */
 import { VERSION } from "../version.js";
 
@@ -20,7 +23,7 @@ export const SKILL_VERSION_STAMP = `lemma:skill:v=${VERSION}`;
 export function buildSkillContent(): string {
   return `---
 name: lemma
-description: Persistent memory and learning layer for AI agents via MCP. Remembers knowledge across sessions — recall what you already know with memory_read, save new knowledge with memory_add. Applies to any task (coding, debugging, refactoring, research, documentation, optimization) across all languages. Distills reusable skills (guides) from experience.
+description: Persistent cross-session memory for AI agents via MCP. BEFORE starting ANY task (coding, debugging, refactoring, research, docs, optimization — any language), FIRST call memory_read to load what you already know so you never re-derive or re-explore known facts. AFTER finishing, call memory_add to persist new findings and session_attempt for dead ends — unsaved knowledge is lost permanently. Distills reusable guides from experience.
 ---
 
 <!-- ${SKILL_VERSION_STAMP} -->

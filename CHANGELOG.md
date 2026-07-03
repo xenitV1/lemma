@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.18.3] - 2026-07-03
+
+Memory-injection quality + Codex triggering. Investigating why Lemma appeared "unused" in Codex revealed that Codex demotes every channel Lemma relied on (MCP `instructions`, tool descriptions, and even the SKILL.md body) to low-salience, on-demand metadata — the only always-visible surface is the skill's one-line `description`. This release turns that line (and the `memory_read` tool description) into an imperative that forces a `memory_read` at the start of a task, and improves the injected-memory blob itself: correct ranking, de-duplication, and a legible format. All changes are backward compatible — no schema, tool-contract, or API changes; only the LLM-facing text and its ordering changed.
+
+### Fixed
+- **Injection ranking now matches the documented formula.** The context-injection path (`buildInjectedTools`, `processFragments`) sorted by `confidence` alone, contradicting the README's "confidence × recency" claim. It now uses the shared `injectionScore` (`confidence·0.7 + recency·0.3`), exported as the single source of truth from `src/memory/core.ts`. Recent knowledge is no longer starved out of a small full-content budget by old high-confidence fragments.
+
+### Changed
+- **Codex trigger (SKILL.md `description`).** Rewrote the frontmatter description from a passive "what this is" into an imperative: *"Call memory_read FIRST, before any task… call memory_add AFTER…"*. On Codex this one line is the only always-visible surface, so it must carry the recall-before-acting directive itself (the skill body is not preloaded).
+- **`memory_read` tool description** now leads with *"START HERE — call this FIRST at the beginning of every task…"* so clients that surface tool descriptions get the same trigger.
+- **Injected memory blob format.** Fragments are now XML-tagged with a plain-language confidence label + human age (`<memory id="…" confidence="high" age="3d">`) instead of a raw float, and split into `RECENT (last 7 days)` vs `ESTABLISHED` sections — recency at a glance, and interpretable salience for the model.
+- **Diversity de-duplication.** A greedy near-duplicate filter (token-overlap ≥ 0.6) drops redundant fragments from the injection so the token budget isn't spent re-injecting the same knowledge twice.
+
+### Docs
+- Added a research-grounded **[Roadmap](docs/development/ROADMAP.md)** (replaces a stale prior roadmap that claimed an embeddings layer never built) with an explicit backward-compatibility contract for the project's 1000+ installs. Linked from the README and Development Guide.
+
+### Verified
+- `npm run build`, `npm run typecheck`
+- `npm test` (738/738, +2 injection tests: semantic confidence label + age present; confidence×recency ranking surfaces a recent fragment over an old max-confidence one)
+
 ## [0.18.2] - 2026-06-26
 
 Hotfix for two recurring `memory_update` failures. (1) `fts5: syntax error near "OR"` whenever a fragment body contained the words OR/AND/NOT/NEAR — lemma fed user content into the FTS5 query unquoted, so FTS5 parsed those words as boolean operators. (2) A false-positive `Similar fragment already exists` blocked legitimate updates whenever the new text shared even a single common token (e.g. "COS") with any other fragment, because `memory_update`'s dedup had no similarity threshold (unlike `memory_add`).

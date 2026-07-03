@@ -990,7 +990,13 @@ export function filterByProject(fragments: MemoryFragment[], currentProject: str
   );
 }
 
-function injectionScore(fragment: MemoryFragment): number {
+/**
+ * Blended recall priority: confidence (how trusted) × recency (how fresh).
+ * Single source of truth for BOTH context-injection ordering (system-prompt.ts)
+ * and query=null recall here — so the injected memory blob is ranked by the same
+ * formula the README documents, not by confidence alone.
+ */
+export function injectionScore(fragment: MemoryFragment): number {
   const confidence = fragment.confidence;
   const daysSinceCreated = (Date.now() - new Date(fragment.created).getTime()) / 86400000;
   const recency = Math.max(0, 1 - daysSinceCreated / 180);

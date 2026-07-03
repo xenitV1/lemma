@@ -16,6 +16,5 @@ test-results/
 .agent/
 .kilocode/
 .npmrc
-ROADMAP.md
 tsconfig.tsbuildinfo
 agents.md

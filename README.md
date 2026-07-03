@@ -193,6 +193,7 @@ Lemma is local-first by design:
 ## Documentation
 
 - [Development Guide](docs/development/DEVELOPMENT.md) — Architecture, project structure, testing
+- [Roadmap](docs/development/ROADMAP.md) — Research-grounded plan + backward-compatibility contract
 - [Research](docs/research/README.md) — Academic papers that influenced Lemma's design
 - [Changelog](CHANGELOG.md) — Version history
 

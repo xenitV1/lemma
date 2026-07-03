@@ -97,10 +97,12 @@ describe("skill content", () => {
     const c = buildSkillContent();
     assert.match(c, /name: lemma/);
     assert.match(c, /^description: .+/m);
-    // The description is what clients inject — it must convey what Lemma is.
-    assert.match(c, /Persistent memory/);
+    // The description is the ONLY always-visible surface on skill-format clients
+    // (e.g. Codex): it must both convey what Lemma is AND be an imperative that
+    // forces the first memory_read (the skill body is not preloaded there).
+    assert.match(c, /Persistent cross-session memory/);
     assert.match(c, /MCP/);
-    assert.match(c, /memory_read/);
+    assert.match(c, /FIRST call memory_read/);
     assert.match(c, /memory_add/);
   });
 
