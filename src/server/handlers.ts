@@ -79,6 +79,7 @@ interface MemoryUpdateArgs {
 
 interface MemoryForgetArgs {
   id?: string;
+  consolidate?: boolean;
 }
 
 interface MemoryFeedbackArgs {
@@ -91,6 +92,7 @@ interface MemoryMergeArgs {
   title?: string;
   fragment?: string;
   project?: string | null;
+  consolidate?: boolean;
 }
 
 interface MemoryRelateArgs {
@@ -1227,6 +1229,20 @@ export async function handleMemoryAdd(args?: MemoryAddArgs): Promise<ToolResult>
   const conflicts = intel.detectConflict(newFragment, memoryForIntel.filter((f: any) => f.id !== newFragment.id));
   if (conflicts.length > 0) {
     hookSuggestions.push(`CONFLICT: ${conflicts.length} potentially contradicting memory(ies) detected: ${conflicts.map(c => `[${c.memory_b_id}] "${c.memory_b_title}"`).join(", ")}. Use memory_relate with type "contradicts" to link.`);
+
+    // For high-confidence conflicts, propose a resolution (which claim wins) and
+    // apply a small spot-decay to the loser so recall down-weights it. Advisory
+    // only — the agent still decides whether to memory_relate supersedes (B4/N4).
+    const conflictDb = getDb();
+    for (const c of conflicts.filter(c => c.overlap_score >= 0.7)) {
+      const older = memoryForIntel.find((f: any) => f.id === c.memory_b_id);
+      if (!older) continue;
+      const res = intel.resolveConflict(newFragment, older);
+      hookSuggestions.push(`RESOLVE: [${res.loser_id}] appears superseded by [${res.winner_id}] — ${res.rationale}. Consider memory_relate type "supersedes" (source="${res.winner_id}", target="${res.loser_id}"). The older claim was spot-decayed by 0.1.`);
+      conflictDb.prepareCached(
+        `UPDATE memories SET confidence = MAX(0, confidence - 0.1), updated_at = datetime('now') WHERE legacy_id = ?`,
+      ).run(res.loser_id);
+    }
   }
 
   const allGuides = guides.loadGuides();
@@ -1370,6 +1386,23 @@ export async function handleMemoryForget(args?: MemoryForgetArgs): Promise<ToolR
     return {
       content: [{ type: "text", text: `Error: Fragment with ID '${id}' not found` }],
       isError: true,
+    };
+  }
+
+  const consolidate = args?.consolidate === true;
+  if (consolidate) {
+    // Non-destructive archive: down-weight so recall ignores it, but keep the
+    // row (and its guide links) so it's fully recoverable (roadmap B3; survey O4).
+    const db = getDb();
+    db.prepareCached(
+      `UPDATE memories SET confidence = MIN(confidence, 0.05), updated_at = datetime('now') WHERE legacy_id = ?`,
+    ).run(id);
+    logger.data("memory", "save", { reason: "archive_fragment", id });
+    notifyMemoryChange();
+    logger.flow("memory_forget", "complete_archive", { id });
+    return {
+      content: [{ type: "text", text: `Archived fragment [${id}] — down-weighted to 0.05 (kept and reversible), not deleted. Pass consolidate=false to hard-delete.` }],
+      structuredContent: { success: true, id },
     };
   }
 
@@ -1534,7 +1567,8 @@ export async function handleMemoryMerge(args?: MemoryMergeArgs): Promise<ToolRes
     if (row) numericIds.push(row.id);
   }
 
-  const newNumericId = store.mergeMemories(db, numericIds, title, fragment);
+  const consolidate = args?.consolidate === true;
+  const newNumericId = store.mergeMemories(db, numericIds, title, fragment, undefined, consolidate);
   if (!newNumericId) {
     logger.warn("memory_merge failed", { reason: "mergeMemories returned null" });
     return {
@@ -1609,7 +1643,9 @@ export async function handleMemoryMerge(args?: MemoryMergeArgs): Promise<ToolRes
   logger.flow("memory_merge", "complete", { new_id: newLegacyId, merged_count: ids.length });
 
   const scopeInfo = project ? ` (project: ${project})` : " (global)";
-  let response = `Merged ${ids.length} fragments into [${newLegacyId}]${scopeInfo}: "${title}"\nRemoved IDs: ${ids.join(", ")}`;
+  let response = consolidate
+    ? `Consolidated ${ids.length} fragments into [${newLegacyId}]${scopeInfo}: "${title}"\nSuperseded (kept, down-weighted, reversible) IDs: ${ids.join(", ")}`
+    : `Merged ${ids.length} fragments into [${newLegacyId}]${scopeInfo}: "${title}"\nRemoved IDs: ${ids.join(", ")}`;
 
   if (inheritedRelations.length > 0 || inheritedGuides.length > 0) {
     response += `\n\nINHERITED CONNECTIONS:`;

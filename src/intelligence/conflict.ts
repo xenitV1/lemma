@@ -122,48 +122,111 @@ export function scanForConflicts(allFragments: MemoryFragment[]): ConflictPair[]
   const conflicts: ConflictPair[] = [];
   const signatures = new Map<string, Set<string>>();
   const negationMap = new Map<string, boolean>();
-
-  for (const frag of allFragments) {
-    signatures.set(frag.id, extractTopicSignature(frag.fragment));
-    negationMap.set(frag.id, hasNegation(frag.fragment));
-  }
+  // Tier-1 gate: an inverted index (term → fragment indices) so we only run the
+  // expensive overlap+signal check on pairs that share ≥1 topic term. Pairs
+  // sharing zero terms have overlap 0 and were always skipped, so the output is
+  // identical to the old O(n²) scan — just far fewer comparisons (SSR-Ada; C3).
+  const inverted = new Map<string, number[]>();
 
   for (let i = 0; i < allFragments.length; i++) {
-    for (let j = i + 1; j < allFragments.length; j++) {
-      const a = allFragments[i];
-      const b = allFragments[j];
-      const overlap = topicOverlap(signatures.get(a.id)!, signatures.get(b.id)!);
-      if (overlap < 0.4) continue;
+    const frag = allFragments[i];
+    const sig = extractTopicSignature(frag.fragment);
+    signatures.set(frag.id, sig);
+    negationMap.set(frag.id, hasNegation(frag.fragment));
+    for (const term of sig) {
+      const list = inverted.get(term);
+      if (list) list.push(i); else inverted.set(term, [i]);
+    }
+  }
 
-      const aNeg = negationMap.get(a.id)!;
-      const bNeg = negationMap.get(b.id)!;
-
-      let conflictScore = 0;
-      if (aNeg !== bNeg && overlap >= 0.5) {
-        conflictScore = 0.5 + (overlap - 0.5) * 0.5;
-      }
-
-      const signalScore = detectContradictionSignals(a.fragment, b.fragment);
-      conflictScore = Math.max(conflictScore, signalScore * overlap);
-
-      if (conflictScore >= 0.4) {
-        conflicts.push({
-          memory_a_id: a.id,
-          memory_a_title: a.title,
-          memory_b_id: b.id,
-          memory_b_title: b.title,
-          reason: aNeg !== bNeg
-            ? "Opposing sentiment on same topic"
-            : "Contradiction signals detected",
-          overlap_score: Math.round(conflictScore * 100) / 100,
-        });
+  // Generate the candidate pair set (deduped) from co-occurrence in the index.
+  const candidates = new Set<number>();
+  const N = allFragments.length;
+  for (const idxs of inverted.values()) {
+    if (idxs.length < 2) continue;
+    for (let x = 0; x < idxs.length; x++) {
+      for (let y = x + 1; y < idxs.length; y++) {
+        const i = idxs[x], j = idxs[y];
+        candidates.add(i < j ? i * N + j : j * N + i);
       }
     }
   }
 
+  // Tier-2: the expensive contradiction check, on candidates only. Sort the
+  // keys so pairs are visited in the same (i<j) order as the old scan, keeping
+  // the output byte-identical for equal-score ties.
+  const orderedKeys = [...candidates].sort((a, b) => a - b);
+  for (const key of orderedKeys) {
+    const i = Math.floor(key / N);
+    const j = key % N;
+    const a = allFragments[i];
+    const b = allFragments[j];
+    const overlap = topicOverlap(signatures.get(a.id)!, signatures.get(b.id)!);
+    if (overlap < 0.4) continue;
+
+    const aNeg = negationMap.get(a.id)!;
+    const bNeg = negationMap.get(b.id)!;
+
+    let conflictScore = 0;
+    if (aNeg !== bNeg && overlap >= 0.5) {
+      conflictScore = 0.5 + (overlap - 0.5) * 0.5;
+    }
+
+    const signalScore = detectContradictionSignals(a.fragment, b.fragment);
+    conflictScore = Math.max(conflictScore, signalScore * overlap);
+
+    if (conflictScore >= 0.4) {
+      conflicts.push({
+        memory_a_id: a.id,
+        memory_a_title: a.title,
+        memory_b_id: b.id,
+        memory_b_title: b.title,
+        reason: aNeg !== bNeg
+          ? "Opposing sentiment on same topic"
+          : "Contradiction signals detected",
+        overlap_score: Math.round(conflictScore * 100) / 100,
+      });
+    }
+  }
+
   conflicts.sort((a, b) => b.overlap_score - a.overlap_score);
-  logger.flow("conflict", "full_scan", { fragment_count: allFragments.length, conflict_count: conflicts.length });
+  logger.flow("conflict", "full_scan", { fragment_count: allFragments.length, conflict_count: conflicts.length, candidate_pairs: candidates.size });
   return conflicts;
+}
+
+export interface ConflictResolution {
+  winner_id: string;
+  loser_id: string;
+  winner_score: number;
+  loser_score: number;
+  rationale: string;
+}
+
+/**
+ * Propose which of two conflicting fragments should win, via a survey-O3
+ * heuristic: recency × confidence × support-count. This is advisory only — it
+ * suggests a `supersedes` link and a small spot-decay for the loser; it never
+ * deletes or auto-relates. The calling agent decides (roadmap B4, N4).
+ */
+export function resolveConflict(a: MemoryFragment, b: MemoryFragment): ConflictResolution {
+  const score = (f: MemoryFragment): number => {
+    const created = new Date(f.created).getTime();
+    const days = Number.isNaN(created) ? 180 : (Date.now() - created) / 86400000;
+    const recency = Math.max(0, 1 - days / 180);
+    const support = (f.relations || []).filter(r => r.type === "supports").length;
+    const supportScore = Math.min(support / 3, 1);
+    return (f.confidence ?? 0.5) * 0.5 + recency * 0.3 + supportScore * 0.2;
+  };
+  const sa = Math.round(score(a) * 100) / 100;
+  const sb = Math.round(score(b) * 100) / 100;
+  const [winner, loser, ws, ls] = sa >= sb ? [a, b, sa, sb] : [b, a, sb, sa];
+  return {
+    winner_id: winner.id,
+    loser_id: loser.id,
+    winner_score: ws,
+    loser_score: ls,
+    rationale: `recency×confidence×support favors [${winner.id}] (${ws} vs ${ls})`,
+  };
 }
 
 export function formatConflictResults(conflicts: ConflictPair[]): string {

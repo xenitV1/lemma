@@ -186,6 +186,20 @@ export interface LemmaConfig {
     timeout_minutes: number;
     idle_timeout_seconds: number;
   };
+  decay: {
+    // "linear" = today's flat −0.002/run (default, unchanged). "ebbinghaus" =
+    // opt-in exponential, type-aware forgetting keyed off time-since-access.
+    model: "linear" | "ebbinghaus";
+    // Per-type half-lives in days for the ebbinghaus model: durable knowledge
+    // (patterns, architecture context) forgets slowly; transient warnings fast.
+    half_life_days: {
+      fact: number;
+      pattern: number;
+      lesson: number;
+      warning: number;
+      context: number;
+    };
+  };
 }
 
 export interface HookContext {

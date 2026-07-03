@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { LemmaDB } from "./database.js";
 import { logger } from "../logger.js";
 import { sanitizeFtsQuery } from "./fts.js";
+import { loadConfig } from "../memory/config.js";
 import type { MemoryFragment, MemoryRelation, FragmentType, MemoryStats } from "../types.js";
 
 function generateLegacyId(): string {
@@ -495,25 +496,55 @@ export function markDecayRun(lemmaDb: LemmaDB): void {
   ).run();
 }
 
+const FRAGMENT_TYPES = ["fact", "pattern", "lesson", "warning", "context"] as const;
+
 export function decayMemories(lemmaDb: LemmaDB): number {
   if (!shouldRunDecay(lemmaDb)) {
     logger.info("Memory decay skipped (too recent)");
     return 0;
   }
 
+  const cfg = loadConfig();
+  const decayCfg = cfg.decay ?? { model: "linear" as const, half_life_days: undefined };
   const { db } = lemmaDb;
+
   return db.transaction(() => {
-    const result = lemmaDb
-      .prepareCached(
+    let changed = 0;
+
+    if (decayCfg.model === "ebbinghaus") {
+      // Exponential, type-aware retention keyed off the true elapsed time since
+      // the last decay run — so a long absence forgets more (Ebbinghaus), while
+      // access (access_count > 0 this window) fully resets the fragment.
+      const row = lemmaDb.prepareCached(
+        `SELECT applied_at FROM schema_version WHERE version = -1`,
+      ).get() as { applied_at: string } | undefined;
+      const lastMs = row ? new Date(row.applied_at).getTime() : Date.now() - DECAY_INTERVAL_HOURS * 3600 * 1000;
+      const elapsedDays = Math.max(0.5, (Date.now() - lastMs) / 86400000);
+      const halfLives = decayCfg.half_life_days ?? {};
+
+      for (const type of FRAGMENT_TYPES) {
+        const halfLife = (halfLives as Record<string, number>)[type] || 60;
+        const retention = Math.pow(0.5, elapsedDays / halfLife);
+        const r = lemmaDb.prepareCached(
+          `UPDATE memories SET confidence = MAX(0, confidence * ?), updated_at = datetime('now')
+           WHERE access_count = 0 AND confidence > 0 AND type = ?`,
+        ).run(retention, type);
+        changed += r.changes;
+      }
+    } else {
+      // Linear (default, unchanged): flat −0.002 for every unaccessed fragment.
+      const result = lemmaDb.prepareCached(
         `UPDATE memories SET confidence = MAX(0, confidence - 0.002),
          updated_at = datetime('now')
          WHERE access_count = 0 AND confidence > 0`,
-      )
-      .run();
+      ).run();
+      changed = result.changes;
+    }
+
     lemmaDb.prepareCached("UPDATE memories SET access_count = 0").run();
     markDecayRun(lemmaDb);
-    logger.info("Memory decay complete", { decayed: result.changes });
-    return result.changes;
+    logger.info("Memory decay complete", { decayed: changed, model: decayCfg.model });
+    return changed;
   })();
 }
 
@@ -563,6 +594,7 @@ export function mergeMemories(
   title: string,
   fragment: string,
   description?: string,
+  consolidate = false,
 ): number | null {
   if (ids.length === 0) return null;
 
@@ -595,12 +627,25 @@ export function mergeMemories(
       }
     }
 
-    const deleteStmt = lemmaDb.prepareCached("DELETE FROM memories WHERE id = ?");
-    for (const id of ids) {
-      deleteStmt.run(id);
+    if (consolidate) {
+      // Non-destructive: keep the sources but mark them superseded by the merged
+      // fragment and heavily down-weight them, so recall/injection ignores them
+      // yet nothing is lost and it's reversible (roadmap B3; SDFT; survey O4).
+      for (const id of ids) {
+        addRelation(lemmaDb, newId, id, "supersedes", "consolidated");
+        lemmaDb.prepareCached(
+          `UPDATE memories SET confidence = MIN(confidence, 0.1), updated_at = datetime('now') WHERE id = ?`,
+        ).run(id);
+      }
+      logger.info("Memories consolidated (non-destructive)", { sourceIds: ids, newId });
+    } else {
+      const deleteStmt = lemmaDb.prepareCached("DELETE FROM memories WHERE id = ?");
+      for (const id of ids) {
+        deleteStmt.run(id);
+      }
+      logger.info("Memories merged", { sourceIds: ids, newId });
     }
 
-    logger.info("Memories merged", { sourceIds: ids, newId });
     return newId;
   })();
 }

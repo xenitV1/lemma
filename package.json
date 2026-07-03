@@ -1,6 +1,6 @@
 {
   "name": "lemma-mcp",
-  "version": "0.18.3",
+  "version": "0.19.0",
   "description": "Persistent memory layer for LLMs via MCP",
   "type": "module",
   "main": "dist/index.js",
@@ -34,7 +34,10 @@
     "test:guides": "node --import tsx --import ./tests/_setup.ts --test tests/guides/*.test.ts",
     "test:sessions": "node --import tsx --import ./tests/_setup.ts --test tests/sessions/*.test.ts",
     "test:server": "node --import tsx --import ./tests/_setup.ts --test tests/server/*.test.ts",
-    "test:mcp": "node tests/manual/mcp-smoke.mjs"
+    "test:mcp": "node tests/manual/mcp-smoke.mjs",
+    "test:mcp:c2": "node tests/manual/c2-quality-mcp.mjs",
+    "test:mcp:wave2": "node tests/manual/wave2-mcp.mjs",
+    "test:mcp:glm": "node tests/manual/glm-agent-mcp.mjs"
   },
   "keywords": [
     "mcp",

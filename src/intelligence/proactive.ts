@@ -2,6 +2,7 @@ import type { MemoryFragment } from "../types.js";
 import type { Guide } from "../types.js";
 import type { ProactiveSuggestion, PatternDetection } from "./types.js";
 import { logger } from "../logger.js";
+import { isLowQuality, qualityScoreReasons } from "./scoring.js";
 
 export function checkAfterMemoryAdd(
   fragment: MemoryFragment,
@@ -214,6 +215,20 @@ export function runFullAnalysis(
       priority: hotDistill.some(f => f.accessed >= 10) ? "high" : "medium",
       message: `${hotDistill.length} frequently accessed pattern(s)/lesson(s) without guides: ${hotDistill.slice(0, 3).map(f => `"${f.title}" (${f.accessed}x)`).join(", ")}. These are reused knowledge — distill into guides.`,
       suggested_action: `guide_distill for each hot fragment`,
+    });
+  }
+
+  const lowQuality = allFragments.filter(isLowQuality);
+  if (lowQuality.length > 0) {
+    const examples = lowQuality
+      .slice(0, 3)
+      .map(f => `[${f.id}] "${f.title}" (${qualityScoreReasons(f).join(", ")})`)
+      .join("; ");
+    suggestions.push({
+      type: "refine",
+      priority: lowQuality.length > 5 ? "high" : "medium",
+      message: `${lowQuality.length} memory(ies) score below the quality threshold (poor feedback/recall track record): ${examples}. Refine or prune them.`,
+      suggested_action: `memory_update / memory_feedback / memory_forget on the weakest fragments`,
     });
   }
 

@@ -334,7 +334,7 @@ export const TOOLS: ToolDefinition[] = [
   },
   {
     name: "memory_forget",
-    description: "Remove a memory fragment by ID.",
+    description: "Remove a memory fragment by ID. Pass consolidate=true to archive (down-weight, keep, reversible) instead of hard-deleting.",
     inputSchema: {
       additionalProperties: false,
       type: "object",
@@ -342,6 +342,10 @@ export const TOOLS: ToolDefinition[] = [
         id: {
           type: "string",
           description: "The ID of the fragment to remove",
+        },
+        consolidate: {
+          type: "boolean",
+          description: "If true, archive the fragment (down-weight to 0.05 so recall ignores it) instead of deleting it — non-destructive and reversible. Default false (hard delete).",
         },
       },
       required: ["id"],
@@ -387,7 +391,7 @@ export const TOOLS: ToolDefinition[] = [
   },
   {
     name: "memory_merge",
-    description: "Merge multiple memory fragments into one. You decide the merged content, this tool just executes the merge. Use when you find related/overlapping fragments that should be consolidated.",
+    description: "Merge multiple memory fragments into one. You decide the merged content, this tool just executes the merge. Use when you find related/overlapping fragments that should be consolidated. Pass consolidate=true to supersede+down-weight the sources (reversible) instead of deleting them.",
     inputSchema: {
       additionalProperties: false,
       type: "object",
@@ -408,6 +412,10 @@ export const TOOLS: ToolDefinition[] = [
         project: {
           type: ["string", "null"],
           description: "Project scope. Omit to auto-file under the current project (detected from cwd). Pass 'global' or null for cross-project scope. Optional.",
+        },
+        consolidate: {
+          type: "boolean",
+          description: "If true, keep the source fragments but mark them superseded by the merged one and down-weight them (non-destructive, reversible) instead of deleting. Default false.",
         },
       },
       required: ["ids", "title", "fragment"],

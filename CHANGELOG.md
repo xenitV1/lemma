@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.19.0] - 2026-07-03
+
+Wave 2 — lifecycle robustness & the self-improvement loop (roadmap `docs/development/ROADMAP.md`). Six research-grounded, backward-compatible refinements. Every change is additive or config-gated with today's behavior as the default; no schema migration, no tool-contract break (the two new capabilities are **optional parameters** on existing tools), and the 1000+-install compatibility contract holds.
+
+### Added
+- **C2 — `quality_score` revival.** The `quality_score` column has existed since schema v1 but was never populated. New pure module `src/intelligence/scoring.ts`: `calculateQualityScore` computes a composite [0,1] from a fragment's own counters — confidence, feedback ratio, reuse, maturity (refinement), freshness — minus a strong negative-recall penalty (strong on purpose: confidence itself decays only −0.02/hit, so a repeatedly-rejected fragment would otherwise never drop). Populated **incrementally on existing touch-points** (`boostOnAccess`, `recordNegativeHit`) — no global rebuild (survey O7). `proactive_analysis` / `memory_library` now surface a **specific** refine suggestion for established-but-weak fragments, citing the exact triggering counters; brand-new fragments are never punished for silence. **[compat: none]**
+- **B3 — Non-destructive consolidation.** `memory_merge` and `memory_forget` gained an optional `consolidate` parameter. `memory_merge consolidate=true` keeps the source fragments, marks them `supersedes`-linked to the merged one, and down-weights them (≤0.1) instead of deleting; `memory_forget consolidate=true` archives (down-weights to 0.05) instead of hard-deleting. Fully reversible; nothing is lost (SDFT; survey O4). Default paths unchanged. **[compat: behavior]**
+- **B4 — Conflict *resolution*, not just detection.** On a high-confidence conflict during `memory_add`, Lemma now proposes which claim wins via a recency×confidence×support heuristic (`resolveConflict`, survey O3/N4) and applies a small −0.1 spot-decay to the loser, alongside a `memory_relate supersedes` suggestion. Advisory only — the agent decides; nothing is auto-related or deleted. **[compat: none]**
+- **B5 — Ebbinghaus, type-aware decay (opt-in).** New `decay` config block. `decay.model` defaults to `"linear"` (today's exact flat −0.002/run). Set it to `"ebbinghaus"` for exponential, time-since-access retention with per-type half-lives (`decay.half_life_days`: patterns/architecture context forget slowly, transient warnings fast). Time-correct: a longer absence forgets more; access resets. **[compat: behavior — default unchanged]**
+
+### Changed
+- **C3 — Two-tier gated conflict scan.** `scanForConflicts` now builds an inverted term index and runs the expensive contradiction check only on candidate pairs sharing ≥1 topic term (SSR-Ada). Output is byte-identical to the old O(n²) scan (keys sorted to preserve tie order); far fewer comparisons on large bases (survey O7 — never a global rebuild). **[compat: none]**
+- **D2/D3 — Nudge quality.** `memory_add`'s nudge gained a "worth saving?" quality gate (durable & reusable, skip trivia) + habituation phrasing. Filled `TOOL_NUDGES` gaps (`memory_forget`, `memory_merge`, `memory_relate`, `conflict_scan`, `proactive_analysis`, `semantic_search`) — the merge/forget nudges advertise the reversible `consolidate` option. LLM-facing text only. **[compat: behavior]**
+
+### Verified
+- `npm run typecheck`, `npm run build`
+- `npm test` — **762/762** (+24 over 0.18.3: scoring, decay model, consolidation, resolveConflict, two-tier scan, nudges) + the existing migration test (old DB opens clean; no new migration this wave)
+- `npm run test:mcp` (real-server stdio smoke — 26 tools, continuity)
+- `npm run test:mcp:c2` — quality_score populated in the live DB; low-quality fragment surfaces the counter-citing suggestion via `proactive_analysis`
+- `npm run test:mcp:wave2` — over the live protocol: contradictory `memory_add` surfaces CONFLICT+RESOLVE and spot-decays the loser; `memory_merge`/`memory_forget consolidate=true` keep + down-weight sources instead of deleting
+- `npm run test:mcp:glm` — real-LLM end-to-end: GLM-5.1 (Z.AI coding-plan endpoint) drives the real server — persists via `memory_add`, recalls via `memory_read` in a fresh chat, answers correctly. (Requires `ZAI_API_KEY`.)
+
 ## [0.18.3] - 2026-07-03
 
 Memory-injection quality + Codex triggering. Investigating why Lemma appeared "unused" in Codex revealed that Codex demotes every channel Lemma relied on (MCP `instructions`, tool descriptions, and even the SKILL.md body) to low-salience, on-demand metadata — the only always-visible surface is the skill's one-line `description`. This release turns that line (and the `memory_read` tool description) into an imperative that forces a `memory_read` at the start of a task, and improves the injected-memory blob itself: correct ranking, de-duplication, and a legible format. All changes are backward compatible — no schema, tool-contract, or API changes; only the LLM-facing text and its ordering changed.

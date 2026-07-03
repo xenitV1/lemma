@@ -8,6 +8,7 @@ import { logger } from "../logger.js";
 import { getDb, setDataDir } from "../db/database.js";
 import * as store from "../db/memory-store.js";
 import { sanitizeFtsQuery } from "../db/fts.js";
+import { calculateQualityScore } from "../intelligence/scoring.js";
 
 let MEMORY_DIR = path.join(os.homedir(), ".lemma");
 
@@ -323,12 +324,17 @@ export function boostOnAccess(fragment: MemoryFragment, context: string | null =
     }
   }
 
+  // Refresh the (formerly dormant) quality_score on this localized touch — no
+  // global rebuild, just the fragment already being written. (roadmap C2)
+  boosted.quality_score = calculateQualityScore(boosted);
+
   try {
     const db = getDb();
     store.updateMemory(db, fragment.id, {
       confidence: boosted.confidence,
       context_tags: boosted.tags,
       access_count: boosted.accessed,
+      quality_score: boosted.quality_score,
     });
   } catch (err) {
     logger.warn("Failed to write-through boost", { id: fragment.id, error: String(err) });
@@ -344,15 +350,16 @@ export function recordNegativeHit(fragment: MemoryFragment): MemoryFragment {
     negativeHits: (fragment.negativeHits || 0) + 1,
     lastAccessed: new Date().toISOString()
   };
+  result.quality_score = calculateQualityScore(result);
   logger.flow("confidence", "penalize", { id: fragment.id, from: fragment.confidence, to: result.confidence });
 
   try {
     const db = getDb();
     db.prepareCached(
-      `UPDATE memories SET confidence = ?, negative_hits = negative_hits + 1,
+      `UPDATE memories SET confidence = ?, negative_hits = negative_hits + 1, quality_score = ?,
        last_accessed_at = datetime('now'), updated_at = datetime('now')
        WHERE legacy_id = ?`
-    ).run(result.confidence, fragment.id);
+    ).run(result.confidence, result.quality_score, fragment.id);
   } catch (err) {
     logger.warn("Failed to write-through negative hit", { id: fragment.id, error: String(err) });
   }

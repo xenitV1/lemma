@@ -24,6 +24,18 @@ const DEFAULT_CONFIG: LemmaConfig = {
     timeout_minutes: 30,
     idle_timeout_seconds: 120,
   },
+  decay: {
+    // Default keeps today's exact behavior (flat linear); the ebbinghaus curve
+    // is opt-in until validated on real data (roadmap B5).
+    model: "linear",
+    half_life_days: {
+      pattern: 180,
+      context: 120,
+      lesson: 90,
+      fact: 60,
+      warning: 30,
+    },
+  },
 };
 
 let _config: LemmaConfig | null = null;
