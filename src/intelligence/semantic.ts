@@ -34,14 +34,14 @@ const STOP_WORDS = new Set([
   "even", "still", "much", "many", "need", "going", "thing", "think",
 ]);
 
-function tokenize(text: string): string[] {
+export function tokenize(text: string): string[] {
   return text.toLowerCase()
     .replace(/[^a-z0-9\s-]/g, " ")
     .split(/\s+/)
     .filter(w => w.length > 2 && !STOP_WORDS.has(w));
 }
 
-function computeTermFrequency(tokens: string[]): Map<string, number> {
+export function computeTermFrequency(tokens: string[]): Map<string, number> {
   const tf = new Map<string, number>();
   for (const token of tokens) {
     tf.set(token, (tf.get(token) || 0) + 1);
@@ -82,7 +82,7 @@ function applyIdf(vectors: TfidfVector[], df: Map<string, number>, n: number = v
   }
 }
 
-function cosineSimilarity(a: TfidfVector, b: TfidfVector): number {
+export function cosineSimilarity(a: TfidfVector, b: TfidfVector): number {
   if (a.norm === 0 || b.norm === 0) return 0;
   let dot = 0;
   for (const [term, val] of a.terms) {
@@ -103,6 +103,19 @@ export function buildVectors(fragments: MemoryFragment[]): TfidfVector[] {
   applyIdf(vectors, df);
 
   logger.flow("semantic", "vectors_built", { count: vectors.length });
+  return vectors;
+}
+
+/**
+ * Build TF-IDF vectors from precomputed (corpus-independent) term-frequency maps
+ * — the A4 vector cache path. TF is per-document; only IDF depends on the corpus,
+ * so it's recomputed here while the expensive tokenization is skipped for
+ * unchanged fragments. `tf` maps are cloned so callers' cached copies stay raw.
+ */
+export function buildVectorsFromTf(entries: Array<{ memory_id: string; tf: Map<string, number> }>): TfidfVector[] {
+  const vectors: TfidfVector[] = entries.map(e => ({ memory_id: e.memory_id, terms: new Map(e.tf), norm: 0 }));
+  const df = computeDocumentFrequency(vectors);
+  applyIdf(vectors, df);
   return vectors;
 }
 

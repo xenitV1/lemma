@@ -373,4 +373,18 @@ CREATE TABLE IF NOT EXISTS memory_evidence (
 CREATE INDEX IF NOT EXISTS idx_memory_evidence_memory ON memory_evidence(memory_id);
 `;
 
-export const MIGRATIONS: [number, string][] = [[1, SCHEMA_V1], [2, SCHEMA_V2], [3, SCHEMA_V3], [4, SCHEMA_V4], [5, SCHEMA_V5], [6, SCHEMA_V6], [7, SCHEMA_V7]];
+export const SCHEMA_V8 = `
+-- A4: TF-IDF vector cache. Term frequencies are corpus-independent (only IDF
+-- depends on the corpus), so caching the per-fragment TF map keyed by a content
+-- hash lets hybrid retrieval skip re-tokenizing unchanged fragments each query
+-- — killing the O(N) rebuild cost. Falls back to live compute on a miss/mismatch.
+-- Additive + gated; safe to drop/rebuild at any time (pure cache).
+CREATE TABLE IF NOT EXISTS tfidf_cache (
+  legacy_id TEXT PRIMARY KEY REFERENCES memories(legacy_id) ON DELETE CASCADE,
+  content_hash TEXT NOT NULL,
+  terms TEXT NOT NULL,
+  updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+);
+`;
+
+export const MIGRATIONS: [number, string][] = [[1, SCHEMA_V1], [2, SCHEMA_V2], [3, SCHEMA_V3], [4, SCHEMA_V4], [5, SCHEMA_V5], [6, SCHEMA_V6], [7, SCHEMA_V7], [8, SCHEMA_V8]];

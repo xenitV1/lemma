@@ -2550,14 +2550,14 @@ export async function handleProjectAnalytics(args?: { project?: string; response
   return buildResult({ text: formatted, data: { ...progress, project, count: null, projects: [] }, format: responseFormat });
 }
 
-export async function handleSemanticSearch(args?: { query?: string; project?: string; topK?: number; offset?: number; response_format?: "markdown" | "json" }): Promise<ToolResult> {
+export async function handleSemanticSearch(args?: { query?: string; project?: string; topK?: number; offset?: number; hybrid?: boolean; response_format?: "markdown" | "json" }): Promise<ToolResult> {
   const query = args?.query;
   const project = args?.project || null;
   const topK = args?.topK || 10;
   const offset = Math.max(0, args?.offset ?? 0);
   const responseFormat = args?.response_format === "json" ? "json" : "markdown";
 
-  logger.flow("semantic_search", "start", { query: query?.slice(0, 50), project, topK, offset });
+  logger.flow("semantic_search", "start", { query: query?.slice(0, 50), project, topK, offset, hybrid: !!args?.hybrid });
 
   if (!query || typeof query !== "string") {
     return {
@@ -2570,7 +2570,14 @@ export async function handleSemanticSearch(args?: { query?: string; project?: st
   // Fetch a superset so offset pagination has room; topK still bounds the page size.
   const cappedK = Math.min(Math.max(topK, 1), 30);
   const fetchK = cappedK + offset;
-  const allResults = intel.semanticSearch(db, query, { project, topK: fetchK });
+  // A4: opt-in hybrid retrieval (BM25 + TF-IDF fused via RRF, injectionScore
+  // rerank, MMR diversity). Default path stays pure TF-IDF (behavior unchanged).
+  const allResults = args?.hybrid
+    ? intel.hybridSearch(db, query, { project, topK: fetchK }).map(h => {
+        const row = db.prepareCached("SELECT title, fragment FROM memories WHERE legacy_id = ?").get(h.memory_id) as { title: string; fragment: string } | undefined;
+        return { memory_id: h.memory_id, score: h.score, title: row?.title ?? h.memory_id, fragment: row?.fragment ?? "" };
+      })
+    : intel.semanticSearch(db, query, { project, topK: fetchK });
   const total = allResults.length;
   const results = allResults.slice(offset, offset + cappedK);
   const page = paginationMeta(total, cappedK, offset);

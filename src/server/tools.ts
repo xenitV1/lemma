@@ -1028,6 +1028,10 @@ export const TOOLS: ToolDefinition[] = [
           type: "number",
           description: "Number of results to skip for pagination (default 0). Use next_offset from the previous response to fetch the next page. Optional.",
         },
+        hybrid: {
+          type: "boolean",
+          description: "Opt into hybrid retrieval: fuse BM25 keyword ranking with TF-IDF similarity (Reciprocal Rank Fusion), rerank by recall priority, and diversify results (MMR). Better recall on mixed keyword+concept queries. Default: false (pure TF-IDF).",
+        },
         response_format: {
           type: "string",
           enum: ["markdown", "json"],
