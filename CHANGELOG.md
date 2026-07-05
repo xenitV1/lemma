@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.20.0] - 2026-07-05
+
+Wave 3 — the structural roadmap (`docs/development/ROADMAP.md`). All seven items shipped, each additive or opt-in with today's behavior as the default; the 26-tool contract is unchanged (new capabilities are optional parameters on existing tools) and every schema change is a gated, idempotent, downgrade-safe migration. Full suite green (823) + build + real-MCP smoke.
+
+### Added
+- **A3 — Bounded-depth relations graph traversal.** `memory_read` gained an optional `expand_graph` flag: reading a fragment by `id` now surfaces knowledge reachable through its relations (BFS depth ≤ 2, fan-out ≤ 5 strongest-first, `0.6^depth` penalty). Pure SQLite, no schema change, default off. **[compat: none]**
+- **B2 — Fragment versioning + logical invalidation (schema V5).** New `invalidated_at` column + `fragment_history` table + an `AFTER UPDATE` trigger that logs a prior version only when *content* changes (not on confidence-only boost/decay). Recall excludes invalidated fragments by default (`store.searchMemories`/`core.loadMemory` gained `includeInvalidated`); `memory_forget invalidate=true` hides a fragment from recall while preserving its content + history, reversibly. Never physically deletes a superseded fact (survey N9). **[compat: migration]**
+- **B1 — Capacity-driven Heat eviction (schema V6).** New `fragments_archive` table + `eviction { enabled, max_fragments }` config (off by default). When enabled and over capacity, the coldest fragments (lowest injectionScore Heat) are *moved* to the archive — never hard-deleted — and are restorable. Localized, never a whole-memory rebuild (survey O7). **[compat: migration]**
+- **B6 — Code evidence + snippet staleness (schema V7).** `memory_add` gained an optional `evidence { file, symbol?, snippet }`; the snippet is stored with a SHA-256. When `verification.stale_check` is on (default off), reading the fragment re-verifies the cited snippet is still present in the file and appends an advisory "⚠ STALE" note if it drifted — never mutates. LLM-free, Windows-safe (text search); embeddings from community PR #1 deliberately excluded. **[compat: migration]**
+- **A4 — Hybrid retrieval + TF-IDF vector cache (schema V8).** `semantic_search` gained an opt-in `hybrid` flag: SQL predicate prefilter (N7) → BM25 + TF-IDF fused via Reciprocal Rank Fusion → injectionScore rerank → MMR diversity (N8, λ=0.7). New additive `tfidf_cache` table caches per-fragment term frequencies by content hash so unchanged fragments aren't re-tokenized each query (kills the O(N) rebuild); falls back to live compute on a miss. **[compat: migration]**
+
+### Changed
+- **C1 — Episodic tier: virtual sessions persist to SQL.** The virtual-session finalizer wrote its rich data (technologies, accessed/created memories, guides) only to flat JSON; the SQL session row was a near-empty stub. `autoEndSession` now populates the full episode so `saveSessions` syncs the `session_memory_links` / `session_guide_usage` / technologies junctions, plus an N3 crystallized one-line digest on `sessions.lessons`. This gives `project_analytics` and C4 real data. Flat JSON still written (downgrade-safe); no schema change. **[compat: behavior]**
+- **C4 — Self-consistency as confidence.** New `src/intelligence/consistency.ts` derives a per-fragment reliability signal from the outcomes of sessions that used it (`sessions.outcome` via `session_memory_links`). `proactive_analysis` now flags unreliable (high) and divergent (medium) fragments for review and notes strongly-corroborated ones. Pure arithmetic, advisory only (never mutates confidence; N5). **[compat: none]**
+
+### Verified
+- `npm run typecheck`, `npm run build`
+- `npm test` — **823/823** (+61 over 0.19.0), including gated migration tests proving a pre-upgrade DB opens clean at schema_version 8
+- `npm run test:mcp` (real-server stdio smoke — 26 tools, continuity)
+
 ## [0.19.0] - 2026-07-03
 
 Wave 2 — lifecycle robustness & the self-improvement loop (roadmap `docs/development/ROADMAP.md`). Six research-grounded, backward-compatible refinements. Every change is additive or config-gated with today's behavior as the default; no schema migration, no tool-contract break (the two new capabilities are **optional parameters** on existing tools), and the 1000+-install compatibility contract holds.
