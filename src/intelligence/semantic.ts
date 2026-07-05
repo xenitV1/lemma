@@ -34,14 +34,14 @@ const STOP_WORDS = new Set([
   "even", "still", "much", "many", "need", "going", "thing", "think",
 ]);
 
-function tokenize(text: string): string[] {
+export function tokenize(text: string): string[] {
   return text.toLowerCase()
     .replace(/[^a-z0-9\s-]/g, " ")
     .split(/\s+/)
     .filter(w => w.length > 2 && !STOP_WORDS.has(w));
 }
 
-function computeTermFrequency(tokens: string[]): Map<string, number> {
+export function computeTermFrequency(tokens: string[]): Map<string, number> {
   const tf = new Map<string, number>();
   for (const token of tokens) {
     tf.set(token, (tf.get(token) || 0) + 1);
@@ -63,8 +63,12 @@ function computeDocumentFrequency(vectors: TfidfVector[]): Map<string, number> {
   return df;
 }
 
-function applyIdf(vectors: TfidfVector[], df: Map<string, number>): void {
-  const n = vectors.length;
+// `n` is the size of the document collection the df map was computed over.
+// It must be passed explicitly when weighting a query vector against a corpus,
+// otherwise the query would be scaled as if the collection had a single document
+// (n = 1), producing IDF values on a different — and for common terms negative —
+// scale than the corpus, so term-sharing documents score as dissimilar.
+function applyIdf(vectors: TfidfVector[], df: Map<string, number>, n: number = vectors.length): void {
   for (const vec of vectors) {
     for (const [term, tf] of vec.terms) {
       const idf = Math.log((n + 1) / ((df.get(term) || 0) + 1)) + 1;
@@ -78,7 +82,7 @@ function applyIdf(vectors: TfidfVector[], df: Map<string, number>): void {
   }
 }
 
-function cosineSimilarity(a: TfidfVector, b: TfidfVector): number {
+export function cosineSimilarity(a: TfidfVector, b: TfidfVector): number {
   if (a.norm === 0 || b.norm === 0) return 0;
   let dot = 0;
   for (const [term, val] of a.terms) {
@@ -102,6 +106,19 @@ export function buildVectors(fragments: MemoryFragment[]): TfidfVector[] {
   return vectors;
 }
 
+/**
+ * Build TF-IDF vectors from precomputed (corpus-independent) term-frequency maps
+ * — the A4 vector cache path. TF is per-document; only IDF depends on the corpus,
+ * so it's recomputed here while the expensive tokenization is skipped for
+ * unchanged fragments. `tf` maps are cloned so callers' cached copies stay raw.
+ */
+export function buildVectorsFromTf(entries: Array<{ memory_id: string; tf: Map<string, number> }>): TfidfVector[] {
+  const vectors: TfidfVector[] = entries.map(e => ({ memory_id: e.memory_id, terms: new Map(e.tf), norm: 0 }));
+  const df = computeDocumentFrequency(vectors);
+  applyIdf(vectors, df);
+  return vectors;
+}
+
 export function findSemanticSimilar(
   queryText: string,
   vectors: TfidfVector[],
@@ -117,9 +134,12 @@ export function findSemanticSimilar(
     norm: 0,
   };
 
-  const n = vectors.length;
-  const df = computeDocumentFrequency([...vectors, queryVec]);
-  applyIdf([queryVec], df);
+  // Weight the query with the SAME IDF scale the corpus vectors were built on:
+  // corpus document frequencies and corpus size N. Passing the 1-element query
+  // array to applyIdf without an explicit n used n=1, flipping common-term weights
+  // negative and putting query and corpus on incomparable scales.
+  const corpusDf = computeDocumentFrequency(vectors);
+  applyIdf([queryVec], corpusDf, vectors.length);
 
   const results: Array<{ memory_id: string; score: number }> = [];
   for (const vec of vectors) {

@@ -350,7 +350,7 @@ describe("runMigrations — V2 schema_version tracking", () => {
     const versions = tmpDb
       .prepareCached("SELECT version FROM schema_version ORDER BY version")
       .all() as { version: number }[];
-    assert.deepEqual(versions.map(v => v.version), [1, 2, 3]);
+    assert.deepEqual(versions.map(v => v.version), [1, 2, 3, 4, 5, 6, 7, 8]);
     const tables = tmpDb
       .prepareCached("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('session_attempts','improvement_suggestions')")
       .all() as { name: string }[];
@@ -363,7 +363,7 @@ describe("runMigrations — V2 schema_version tracking", () => {
     runMigrations(tmpDb);
     runMigrations(tmpDb);
     const versions = tmpDb.prepareCached("SELECT version FROM schema_version").all() as { version: number }[];
-    assert.equal(versions.length, 3);
+    assert.equal(versions.length, 8);
     const attemptTables = tmpDb
       .prepareCached("SELECT count(*) as c FROM sqlite_master WHERE type='table' AND name='session_attempts'")
       .get() as { c: number };

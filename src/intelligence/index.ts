@@ -30,3 +30,19 @@ export {
   findSemanticSimilarPairs,
   semanticSearch,
 } from "./semantic.js";
+
+export {
+  computeSelfConsistency,
+  scanOutcomeConsistency,
+  outcomeConsistencySuggestions,
+} from "./consistency.js";
+export type { ConsistencyResult, ConsistencyVerdict } from "./consistency.js";
+
+export {
+  reciprocalRankFusion,
+  mmrRerank,
+  hybridSearch,
+} from "./hybrid.js";
+export type { HybridOptions, HybridResult } from "./hybrid.js";
+
+export { buildVectorsCached } from "./vector-cache.js";

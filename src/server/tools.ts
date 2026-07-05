@@ -4,6 +4,10 @@ interface ToolProperty {
   items?: { type: string };
   enum?: string[];
   default?: unknown;
+  // Nested object schema (e.g. memory_add.evidence).
+  properties?: Record<string, ToolProperty>;
+  required?: string[];
+  additionalProperties?: boolean;
 }
 
 interface ToolInputSchema {
@@ -230,6 +234,10 @@ export const TOOLS: ToolDefinition[] = [
           enum: ["markdown", "json"],
           description: "Response format: 'markdown' (default, human-readable) or 'json' (machine-readable structured payload). Optional.",
         },
+        expand_graph: {
+          type: "boolean",
+          description: "When reading a specific fragment (id), also surface related fragments reachable through its relations (bounded traversal: depth ≤ 2, strongest links first). Default: false. Optional.",
+        },
       },
     },
     annotations: DEFAULT_WRITE,
@@ -238,6 +246,7 @@ export const TOOLS: ToolDefinition[] = [
       properties: {
         count: { type: "number", description: "Number of fragments returned in this response." },
         fragments: { type: "array", items: { type: "object" }, description: "Matching memory fragments (summary fields, or full content for id/ids)." },
+        related_graph: { type: "array", items: { type: "object" }, description: "Fragments reached via relations when expand_graph is set (id, title, depth, score)." },
         has_more: { type: "boolean", description: "Whether more results are available beyond this page." },
         next_offset: { type: ["number", "null"], description: "Offset to pass for the next page, if has_more is true. Null when there is no further page." },
       },
@@ -281,6 +290,17 @@ export const TOOLS: ToolDefinition[] = [
           type: "string",
           enum: ["fact", "pattern", "lesson", "warning", "context"],
           description: "Fragment type. 'fact'=technical info, 'pattern'=repeated solution, 'lesson'=learned from experience, 'warning'=caution/gotcha, 'context'=environment info. Default: 'fact'.",
+        },
+        evidence: {
+          type: "object",
+          additionalProperties: false,
+          description: "Optional code backing for this fragment. Cite the file and the exact snippet it was derived from; an opt-in recall check later flags the fragment if that snippet drifts. Windows-safe, no embeddings.",
+          properties: {
+            file: { type: "string", description: "Path to the cited source file." },
+            symbol: { type: "string", description: "Optional symbol/function/section label the snippet belongs to." },
+            snippet: { type: "string", description: "The exact code snippet the fragment is based on (stored verbatim + SHA-256)." },
+          },
+          required: ["file", "snippet"],
         },
       },
       required: ["fragment"],
@@ -334,7 +354,7 @@ export const TOOLS: ToolDefinition[] = [
   },
   {
     name: "memory_forget",
-    description: "Remove a memory fragment by ID. Pass consolidate=true to archive (down-weight, keep, reversible) instead of hard-deleting.",
+    description: "Remove a memory fragment by ID. Pass consolidate=true to archive (down-weight, keep, reversible), or invalidate=true to hide it from recall while preserving its content and version history (reversible), instead of hard-deleting.",
     inputSchema: {
       additionalProperties: false,
       type: "object",
@@ -346,6 +366,10 @@ export const TOOLS: ToolDefinition[] = [
         consolidate: {
           type: "boolean",
           description: "If true, archive the fragment (down-weight to 0.05 so recall ignores it) instead of deleting it — non-destructive and reversible. Default false (hard delete).",
+        },
+        invalidate: {
+          type: "boolean",
+          description: "If true, logically invalidate the fragment: hidden from recall entirely but kept in the DB with its full version history, and reversible. Use for superseded/outdated facts you may want to audit later. Takes precedence over consolidate. Default false.",
         },
       },
       required: ["id"],
@@ -690,7 +714,7 @@ export const TOOLS: ToolDefinition[] = [
   },
   {
     name: "guide_update",
-    description: "Update an existing guide's basic properties (name, category, description).",
+    description: "Update an existing guide's properties (name, category, description) and its dependency graph — which guides it depends_on and which it enables.",
     inputSchema: {
       additionalProperties: false,
       type: "object",
@@ -720,6 +744,16 @@ export const TOOLS: ToolDefinition[] = [
           type: "array",
           items: { type: "string" },
           description: "Add known pitfalls to this guide. Optional.",
+        },
+        add_depends_on: {
+          type: "array",
+          items: { type: "string" },
+          description: "Guide names this guide depends on (prerequisites). Merged + de-duplicated; self-references ignored. Optional.",
+        },
+        add_enables: {
+          type: "array",
+          items: { type: "string" },
+          description: "Guide names this guide enables (unlocks/leads to). Merged + de-duplicated; self-references ignored. Optional.",
         },
         superseded_by: {
           type: "string",
@@ -993,6 +1027,10 @@ export const TOOLS: ToolDefinition[] = [
         offset: {
           type: "number",
           description: "Number of results to skip for pagination (default 0). Use next_offset from the previous response to fetch the next page. Optional.",
+        },
+        hybrid: {
+          type: "boolean",
+          description: "Opt into hybrid retrieval: fuse BM25 keyword ranking with TF-IDF similarity (Reciprocal Rank Fusion), rerank by recall priority, and diversify results (MMR). Better recall on mixed keyword+concept queries. Default: false (pure TF-IDF).",
         },
         response_format: {
           type: "string",

@@ -140,3 +140,32 @@ describe("Redaction", () => {
     assert.ok(types.includes("OpenAI project key"), "project key type must be present in found");
   });
 });
+
+describe("Private key & password redaction (regression)", () => {
+  it("redacts the ENTIRE PEM block, not just the header line", () => {
+    const text = [
+      "here is my key:",
+      "-----BEGIN RSA PRIVATE KEY-----",
+      "MIIEpAIBAAKCAQEA1234SECRETKEYMATERIAL5678notredacted9012",
+      "QIDAQABAoIBAQC7verySecretPrivateExponentThatShouldNeverLeak",
+      "-----END RSA PRIVATE KEY-----",
+      "done",
+    ].join("\n");
+    const { redacted } = redactSecrets(text);
+    assert.ok(!redacted.includes("SECRETKEYMATERIAL"), "key body must be redacted");
+    assert.ok(!redacted.includes("verySecretPrivateExponent"), "key body must be redacted");
+    assert.ok(!redacted.includes("-----END RSA PRIVATE KEY-----"), "END footer must be redacted");
+    assert.ok(redacted.includes("[REDACTED:Private key]"));
+  });
+
+  it("still flags a bare/truncated header with no END line", () => {
+    const { found } = redactSecrets("-----BEGIN RSA PRIVATE KEY-----\nMIIEowI...");
+    assert.ok(found.some(f => f.type === "Private key"));
+  });
+
+  it("redacts an unquoted password assignment", () => {
+    const { redacted } = redactSecrets("db password=hunter2 here");
+    assert.ok(!redacted.includes("hunter2"), "unquoted password value must be redacted");
+    assert.ok(redacted.includes("[REDACTED:Password in assignment]"));
+  });
+});

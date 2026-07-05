@@ -9,6 +9,7 @@ import { getDb, setDataDir } from "../db/database.js";
 import * as store from "../db/memory-store.js";
 import { sanitizeFtsQuery } from "../db/fts.js";
 import { calculateQualityScore } from "../intelligence/scoring.js";
+import { loadConfig } from "./config.js";
 
 let MEMORY_DIR = path.join(os.homedir(), ".lemma");
 
@@ -336,6 +337,11 @@ export function boostOnAccess(fragment: MemoryFragment, context: string | null =
       access_count: boosted.accessed,
       quality_score: boosted.quality_score,
     });
+    // Mark this fragment as accessed in the current decay window so the next
+    // decay run spares it. Separate from access_count (lifetime) — see SCHEMA_V4.
+    db.prepareCached(
+      `UPDATE memories SET access_window = access_window + 1 WHERE legacy_id = ?`
+    ).run(fragment.id);
   } catch (err) {
     logger.warn("Failed to write-through boost", { id: fragment.id, error: String(err) });
   }
@@ -461,15 +467,19 @@ export function addRelation(fragments: MemoryFragment[], sourceId: string, targe
   return true;
 }
 
-export function loadMemory(): MemoryFragment[] {
+export function loadMemory(opts?: { includeInvalidated?: boolean }): MemoryFragment[] {
   logger.data("memory.sqlite", "load_start");
   try {
     const db = getDb();
 
+    // B2/N9: logically-invalidated fragments are excluded from recall by default
+    // (kept in the DB + fragment_history; pass includeInvalidated to see them).
+    const invalidatedClause = opts?.includeInvalidated ? "" : "WHERE m.invalidated_at IS NULL";
     const rows = db.prepareCached(
       `SELECT m.*, p.legacy_id as parent_legacy_id
        FROM memories m
        LEFT JOIN memories p ON m.parent_id = p.id
+       ${invalidatedClause}
        ORDER BY m.confidence DESC`
     ).all() as Record<string, any>[];
 
@@ -560,6 +570,7 @@ function rowToFragment(row: Record<string, any>, relations: MemoryRelation[] = [
     type: row.type,
     related_guides: parseJsonField(row.related_guides),
     distill_candidate: row.distill_candidate === 1,
+    invalidated_at: row.invalidated_at ?? null,
   };
 }
 
@@ -786,6 +797,36 @@ export function deleteMemory(id: string): boolean {
   }
 }
 
+/** B2/N9: logically invalidate a fragment (hide from recall, keep in DB + history). */
+export function invalidateFragment(id: string): boolean {
+  try {
+    return store.invalidateMemory(getDb(), id);
+  } catch (err) {
+    logger.warn("invalidateFragment failed", { id, error: String(err) });
+    return false;
+  }
+}
+
+/** Reverse a logical invalidation. */
+export function restoreFragment(id: string): boolean {
+  try {
+    return store.restoreMemory(getDb(), id);
+  } catch (err) {
+    logger.warn("restoreFragment failed", { id, error: String(err) });
+    return false;
+  }
+}
+
+/** Prior content versions of a fragment (newest first). */
+export function getFragmentHistory(id: string, limit = 20): store.FragmentHistoryEntry[] {
+  try {
+    return store.getFragmentHistory(getDb(), id, limit);
+  } catch (err) {
+    logger.warn("getFragmentHistory failed", { id, error: String(err) });
+    return [];
+  }
+}
+
 let writeLock = false;
 let writeQueue: Array<() => void> = [];
 
@@ -836,6 +877,24 @@ export function applySessionDecay(): MemoryFragment[] {
   const memory = loadMemory();
   logger.flow("decay", "session_complete", { count: memory.length });
   return memory;
+}
+
+/**
+ * B1: capacity-driven Heat eviction. No-op unless eviction.enabled and the live
+ * count exceeds eviction.max_fragments. Archives the coldest fragments (never a
+ * content delete). Returns the number evicted.
+ */
+export function applyEviction(): number {
+  try {
+    const cfg = loadConfig();
+    if (!cfg.eviction?.enabled) return 0;
+    const evicted = store.evictColdFragments(getDb(), cfg.eviction.max_fragments);
+    if (evicted > 0) logger.info(`Heat eviction archived ${evicted} cold fragment(s)`);
+    return evicted;
+  } catch (err) {
+    logger.warn("applyEviction failed", { error: String(err) });
+    return 0;
+  }
 }
 
 export function migrateConfidenceFloor(): number {
@@ -953,8 +1012,10 @@ export function findTopicOverlapsByText(text: string, project: string | null, li
 export function searchMemory(query: string, options?: { project?: string | null; limit?: number; type?: string; minConfidence?: number }): MemoryFragment[] {
   try {
     const db = getDb();
-    const opts: { project?: string; topK?: number; type?: FragmentType; minConfidence?: number } = {};
-    if (options?.project !== undefined && options.project !== null) {
+    const opts: { project?: string | null; topK?: number; type?: FragmentType; minConfidence?: number } = {};
+    // Distinguish "no project arg" (search everywhere) from an explicit null
+    // (global-scope only → project IS NULL). Only an absent arg omits the filter.
+    if (options && "project" in options && options.project !== undefined) {
       opts.project = options.project;
     }
     if (options?.limit !== undefined) {
@@ -976,7 +1037,10 @@ export function searchMemory(query: string, options?: { project?: string | null;
 export function filterByProjectFromDb(project: string | null): MemoryFragment[] {
   try {
     const db = getDb();
-    return store.searchMemories(db, "", { project: project || undefined, topK: 1000 });
+    // Pass null THROUGH (not `|| undefined`) so a global-scope request maps to
+    // `project IS NULL`. `|| undefined` dropped the filter entirely, leaking
+    // every project's fragments into what should be global-only.
+    return store.searchMemories(db, "", { project, topK: 1000 });
   } catch (err) {
     logger.warn("filterByProjectFromDb failed", { error: String(err) });
     return [];
@@ -1008,6 +1072,63 @@ export function injectionScore(fragment: MemoryFragment): number {
   const daysSinceCreated = (Date.now() - new Date(fragment.created).getTime()) / 86400000;
   const recency = Math.max(0, 1 - daysSinceCreated / 180);
   return confidence * 0.7 + recency * 0.3;
+}
+
+export interface GraphNode {
+  fragment: MemoryFragment;
+  depth: number;
+  score: number;
+}
+
+/**
+ * Bounded-depth traversal of the relations graph from a root fragment (roadmap
+ * A3). BFS to `maxDepth` (default 2), at most `fanout` (default 5) edges expanded
+ * per node — ordered by target confidence so the strongest links win the budget —
+ * with a `0.6^depth` distance penalty applied to each node's confidence. The root
+ * is excluded; each reachable fragment appears once at its shallowest depth.
+ * LLM-free, pure SQLite over the existing relations table.
+ */
+export function expandGraph(rootId: string, maxDepth = 2, fanout = 5): GraphNode[] {
+  try {
+    const db = getDb();
+    const rootRow = db.prepareCached("SELECT id FROM memories WHERE legacy_id = ?").get(rootId) as
+      | { id: number }
+      | undefined;
+    if (!rootRow) return [];
+
+    const visited = new Set<string>([rootId]);
+    const out: GraphNode[] = [];
+    let frontier: { legacyId: string; internalId: number }[] = [{ legacyId: rootId, internalId: rootRow.id }];
+
+    for (let depth = 1; depth <= maxDepth && frontier.length > 0; depth++) {
+      const nextFrontier: { legacyId: string; internalId: number }[] = [];
+      for (const node of frontier) {
+        const rels = db.prepareCached(
+          `SELECT m.id as tid, m.legacy_id as tlegacy
+           FROM relations r JOIN memories m ON m.id = r.target_id
+           WHERE r.source_id = ?
+           ORDER BY m.confidence DESC
+           LIMIT ?`,
+        ).all(node.internalId, fanout) as { tid: number; tlegacy: string }[];
+
+        for (const rel of rels) {
+          if (visited.has(rel.tlegacy)) continue;
+          visited.add(rel.tlegacy);
+          const frag = getFragmentById(rel.tlegacy);
+          if (!frag) continue;
+          out.push({ fragment: frag, depth, score: frag.confidence * Math.pow(0.6, depth) });
+          nextFrontier.push({ legacyId: rel.tlegacy, internalId: rel.tid });
+        }
+      }
+      frontier = nextFrontier;
+    }
+
+    out.sort((a, b) => b.score - a.score);
+    return out;
+  } catch (err) {
+    logger.warn("expandGraph failed", { error: String(err) });
+    return [];
+  }
 }
 
 export async function searchAndSortFragments(fragments: MemoryFragment[], query: string | null = null, topK = 30): Promise<MemoryFragment[]> {

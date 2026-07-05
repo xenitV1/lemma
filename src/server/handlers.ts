@@ -9,6 +9,7 @@ import * as store from "../db/memory-store.js";
 import { collectLibrarySnapshot, formatLibrarySnapshot } from "../db/library-store.js";
 import * as intel from "../intelligence/index.js";
 import { redactSecrets } from "../memory/privacy.js";
+import * as evidence from "../memory/evidence.js";
 import { loadConfig, estimateTokens } from "../memory/config.js";
 import { buildResult, paginationMeta } from "./format.js";
 import type { FragmentType, Attempt, AttemptOutcome, Session, SuggestionStatus } from "../types.js";
@@ -58,6 +59,7 @@ interface MemoryReadArgs {
   limit?: number;
   offset?: number;
   response_format?: "markdown" | "json";
+  expand_graph?: boolean;
 }
 
 interface MemoryAddArgs {
@@ -68,6 +70,7 @@ interface MemoryAddArgs {
   source?: string;
   confirm?: boolean;
   type?: string;
+  evidence?: { file?: string; symbol?: string; snippet?: string };
 }
 
 interface MemoryUpdateArgs {
@@ -80,6 +83,7 @@ interface MemoryUpdateArgs {
 interface MemoryForgetArgs {
   id?: string;
   consolidate?: boolean;
+  invalidate?: boolean;
 }
 
 interface MemoryFeedbackArgs {
@@ -144,6 +148,8 @@ interface GuideUpdateArgs {
   description?: string;
   add_anti_patterns?: string[];
   add_pitfalls?: string[];
+  add_depends_on?: string[];
+  add_enables?: string[];
   superseded_by?: string;
   deprecated?: boolean;
 }
@@ -231,16 +237,35 @@ export function autoEndSession(vs: any): void {
   if (!session) return;
 
   const toolCount = vs.duration_tool_calls || 0;
-  const techs = vs.technologies || [];
-  const memCreated = vs.memories_created || [];
-  const guidesUsed = vs.guides_used || [];
+  const techs: string[] = vs.technologies || [];
+  const memCreated: string[] = [...new Set<string>(vs.memories_created || [])];
+  const memRead: string[] = [...new Set<string>(vs.memories_accessed || [])];
+  const guidesUsed: string[] = vs.guides_used || [];
   const project = vs.project || null;
 
   const outcome = memCreated.length > 0 || toolCount > 0
     ? "partial"
     : "abandoned";
 
-  sessions.endSession(session, outcome, null, []);
+  // C1 — episodic tier: persist the FULL virtual session into the SQL sessions
+  // table (not just the flat JSON). Populating these fields lets saveSessions
+  // sync the session_memory_links / session_guide_usage / technologies junctions,
+  // which in turn feed project_analytics and C4 self-consistency.
+  session.technology = techs.join(", ");
+  session.guides_used = guidesUsed;
+  session.memories_read = memRead;
+  session.memories_created = memCreated;
+  if (project) session.project = project;
+
+  // N3 crystallization: distill the episode into a one-line digest kept on the
+  // session, so continuity recall can resurface prior episodes as a growing chain.
+  const digestParts: string[] = [`${toolCount} tool call(s)`];
+  if (techs.length > 0) digestParts.push(`tech: ${techs.join("/")}`);
+  if (memCreated.length > 0) digestParts.push(`created ${memCreated.length} memory(s)`);
+  if (guidesUsed.length > 0) digestParts.push(`guides: ${guidesUsed.join("/")}`);
+  const digest = `Episode (${outcome}) — ${digestParts.join(", ")}.`;
+
+  sessions.endSession(session, outcome, null, [digest]);
   sessions.saveSessions(allSessions);
   activeSessionId = null;
 
@@ -249,6 +274,7 @@ export function autoEndSession(vs: any): void {
     tool_calls: toolCount,
     techs: techs.length,
     mem_created: memCreated.length,
+    mem_read: memRead.length,
     guides_used: guidesUsed.length,
     project,
   });
@@ -958,11 +984,36 @@ export async function handleMemoryRead(args?: MemoryReadArgs): Promise<ToolResul
     }
     const boosted = core.boostOnAccess(fragment, context);
     trackReadIntoSession([detailId]);
+
+    // A3: optional bounded-depth graph expansion from this fragment.
+    let graph: ReturnType<typeof core.expandGraph> = [];
+    let detailText = core.formatMemoryDetail(boosted);
+
+    // B6: opt-in code-evidence staleness check (config-gated; reads the cited
+    // file only when verification.stale_check is on). Advisory — never mutates.
+    let staleFlags: evidence.StaleReport[] = [];
+    if (loadConfig().verification?.stale_check) {
+      staleFlags = evidence.checkStaleByLegacyId(getDb(), detailId).filter(r => r.stale);
+      if (staleFlags.length > 0) {
+        const lines = staleFlags.map(s => `- ${s.file_path}${s.symbol ? ` (${s.symbol})` : ""}: ${s.reason}`);
+        detailText += `\n\n⚠ Code evidence may be STALE — verify before relying on this:\n${lines.join("\n")}\n(Update the fragment or memory_forget invalidate=true if it's outdated.)`;
+      }
+    }
+
+    if (args?.expand_graph) {
+      graph = core.expandGraph(detailId);
+      if (graph.length > 0) {
+        const lines = graph.map(
+          g => `- [${g.fragment.id}] (depth ${g.depth}, score ${g.score.toFixed(2)}) ${g.fragment.title}: ${g.fragment.description || g.fragment.fragment.slice(0, 80)}`,
+        );
+        detailText += `\n\n## Related knowledge (graph, depth ≤ 2)\n${lines.join("\n")}`;
+      }
+    }
     notifyMemoryChange();
 
-    logger.flow("memory_read", "complete_single", { id: detailId, confidence: boosted.confidence?.toFixed(2) });
+    logger.flow("memory_read", "complete_single", { id: detailId, confidence: boosted.confidence?.toFixed(2), graph: graph.length });
     return {
-      content: [{ type: "text", text: core.formatMemoryDetail(boosted) }],
+      content: [{ type: "text", text: detailText }],
       structuredContent: {
         count: 1,
         fragments: [{
@@ -975,6 +1026,15 @@ export async function handleMemoryRead(args?: MemoryReadArgs): Promise<ToolResul
           fragment: boosted.fragment ?? null,
           created: boosted.created ?? null,
         }],
+        ...(args?.expand_graph ? {
+          related_graph: graph.map(g => ({
+            id: g.fragment.id,
+            title: g.fragment.title,
+            depth: g.depth,
+            score: g.score,
+          })),
+        } : {}),
+        ...(staleFlags.length > 0 ? { stale_evidence: staleFlags } : {}),
         has_more: false,
         next_offset: null,
       },
@@ -1159,6 +1219,25 @@ export async function handleMemoryAdd(args?: MemoryAddArgs): Promise<ToolResult>
   }
 
   core.addFragmentToDb(newFragment);
+
+  // B6: attach optional code evidence (file + optional symbol + snippet). Stored
+  // with a SHA-256; an opt-in recall check later re-verifies the snippet.
+  if (args?.evidence?.file && args.evidence.snippet) {
+    try {
+      const db = getDb();
+      const row = db.prepareCached("SELECT id FROM memories WHERE legacy_id = ?").get(newFragment.id) as { id: number } | undefined;
+      if (row) {
+        evidence.addEvidence(db, row.id, {
+          file: args.evidence.file,
+          symbol: args.evidence.symbol,
+          snippet: args.evidence.snippet,
+        });
+        logger.flow("memory_add", "evidence_attached", { id: newFragment.id, file: args.evidence.file });
+      }
+    } catch (err) {
+      logger.warn("memory_add evidence attach failed", { error: String(err) });
+    }
+  }
 
   if (activeSessionId) {
     logger.data("sessions", "load");
@@ -1386,6 +1465,19 @@ export async function handleMemoryForget(args?: MemoryForgetArgs): Promise<ToolR
     return {
       content: [{ type: "text", text: `Error: Fragment with ID '${id}' not found` }],
       isError: true,
+    };
+  }
+
+  // B2/N9: logical invalidation — hide from recall, keep the row + its full
+  // version history, fully reversible via restore. Stronger than consolidate's
+  // down-weight (which only lowers rank); invalidated fragments never surface.
+  if (args?.invalidate === true) {
+    core.invalidateFragment(id);
+    notifyMemoryChange();
+    logger.flow("memory_forget", "complete_invalidate", { id });
+    return {
+      content: [{ type: "text", text: `Invalidated fragment [${id}] — hidden from recall but preserved (content + history kept). Reversible.` }],
+      structuredContent: { success: true, id },
     };
   }
 
@@ -2040,6 +2132,8 @@ export async function handleGuideUpdate(args?: GuideUpdateArgs): Promise<ToolRes
     description: args?.description,
     add_anti_patterns: args?.add_anti_patterns,
     add_pitfalls: args?.add_pitfalls,
+    add_depends_on: args?.add_depends_on,
+    add_enables: args?.add_enables,
     superseded_by: args?.superseded_by,
     deprecated: args?.deprecated,
   };
@@ -2073,6 +2167,12 @@ export async function handleGuideUpdate(args?: GuideUpdateArgs): Promise<ToolRes
   }
   if (args?.add_pitfalls) {
     guide.known_pitfalls = [...(guide.known_pitfalls || []), ...args.add_pitfalls];
+  }
+  if (args?.add_depends_on) {
+    guide.depends_on = guides.mergeGuideRefs(guide.depends_on, args.add_depends_on, guide.guide);
+  }
+  if (args?.add_enables) {
+    guide.enables = guides.mergeGuideRefs(guide.enables, args.add_enables, guide.guide);
   }
   if (args?.superseded_by) {
     guide.superseded_by = args.superseded_by;
@@ -2385,6 +2485,24 @@ export async function handleProactiveAnalysis(args?: { project?: string; respons
     });
   }
 
+  // C4 — self-consistency: flag fragments whose historical session outcomes
+  // diverge or trend to failure, and note strongly-corroborated ones (advisory).
+  try {
+    const titleById = new Map(filtered.map(f => [f.id, f.title] as const));
+    const consistencySuggestions = intel.outcomeConsistencySuggestions(
+      getDb(),
+      (id) => titleById.get(id) ?? null,
+    ).filter(s => {
+      // Keep only suggestions about fragments in the current scope (or the
+      // aggregate corroboration note, which references none).
+      const m = s.message.match(/\[([^\]]+)\]/);
+      return !m || titleById.has(m[1]);
+    });
+    suggestions.push(...consistencySuggestions);
+  } catch (err) {
+    logger.warn("proactive_analysis consistency failed", { error: String(err) });
+  }
+
   let output = `=== PROACTIVE ANALYSIS ===\n`;
   output += `Analyzed ${filtered.length} memories and ${allGuides.length} guides.\n\n`;
   output += intel.formatSuggestions(suggestions);
@@ -2432,14 +2550,14 @@ export async function handleProjectAnalytics(args?: { project?: string; response
   return buildResult({ text: formatted, data: { ...progress, project, count: null, projects: [] }, format: responseFormat });
 }
 
-export async function handleSemanticSearch(args?: { query?: string; project?: string; topK?: number; offset?: number; response_format?: "markdown" | "json" }): Promise<ToolResult> {
+export async function handleSemanticSearch(args?: { query?: string; project?: string; topK?: number; offset?: number; hybrid?: boolean; response_format?: "markdown" | "json" }): Promise<ToolResult> {
   const query = args?.query;
   const project = args?.project || null;
   const topK = args?.topK || 10;
   const offset = Math.max(0, args?.offset ?? 0);
   const responseFormat = args?.response_format === "json" ? "json" : "markdown";
 
-  logger.flow("semantic_search", "start", { query: query?.slice(0, 50), project, topK, offset });
+  logger.flow("semantic_search", "start", { query: query?.slice(0, 50), project, topK, offset, hybrid: !!args?.hybrid });
 
   if (!query || typeof query !== "string") {
     return {
@@ -2452,7 +2570,14 @@ export async function handleSemanticSearch(args?: { query?: string; project?: st
   // Fetch a superset so offset pagination has room; topK still bounds the page size.
   const cappedK = Math.min(Math.max(topK, 1), 30);
   const fetchK = cappedK + offset;
-  const allResults = intel.semanticSearch(db, query, { project, topK: fetchK });
+  // A4: opt-in hybrid retrieval (BM25 + TF-IDF fused via RRF, injectionScore
+  // rerank, MMR diversity). Default path stays pure TF-IDF (behavior unchanged).
+  const allResults = args?.hybrid
+    ? intel.hybridSearch(db, query, { project, topK: fetchK }).map(h => {
+        const row = db.prepareCached("SELECT title, fragment FROM memories WHERE legacy_id = ?").get(h.memory_id) as { title: string; fragment: string } | undefined;
+        return { memory_id: h.memory_id, score: h.score, title: row?.title ?? h.memory_id, fragment: row?.fragment ?? "" };
+      })
+    : intel.semanticSearch(db, query, { project, topK: fetchK });
   const total = allResults.length;
   const results = allResults.slice(offset, offset + cappedK);
   const page = paginationMeta(total, cappedK, offset);

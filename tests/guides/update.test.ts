@@ -101,3 +101,41 @@ describe("updateGuide", () => {
     assert.equal(updated!.description, "found case-insensitive");
   });
 });
+
+describe("updateGuide — dependency graph (regression: previously dead depends_on/enables)", () => {
+  function seedGuide(): Guide {
+    return guides.createGuide("react", "web-frontend", "React library guide");
+  }
+
+  test("adds depends_on, normalized to lowercase and de-duplicated", () => {
+    const gs: Guide[] = [seedGuide()];
+    const updated = guides.updateGuide(gs, "react", { add_depends_on: ["JavaScript", "javascript", "  Hooks  "] });
+    assert.deepEqual(updated!.depends_on, ["javascript", "hooks"]);
+  });
+
+  test("adds enables and drops self-references", () => {
+    const gs: Guide[] = [seedGuide()];
+    const updated = guides.updateGuide(gs, "react", { add_enables: ["nextjs", "react", "remix"] });
+    assert.deepEqual(updated!.enables, ["nextjs", "remix"]);
+  });
+
+  test("accumulates across calls without duplicating", () => {
+    const gs: Guide[] = [seedGuide()];
+    guides.updateGuide(gs, "react", { add_depends_on: ["javascript"] });
+    const updated = guides.updateGuide(gs, "react", { add_depends_on: ["javascript", "jsx"] });
+    assert.deepEqual(updated!.depends_on, ["javascript", "jsx"]);
+  });
+
+  test("graph edges persist to the DB and reload (the feature is actually wired)", () => {
+    const gs: Guide[] = [seedGuide()];
+    guides.updateGuide(gs, "react", { add_depends_on: ["javascript"], add_enables: ["nextjs"] });
+    const reloaded = guides.getGuideFromDb("react");
+    assert.ok(reloaded, "guide must exist in DB");
+    assert.deepEqual(reloaded!.depends_on, ["javascript"]);
+    assert.deepEqual(reloaded!.enables, ["nextjs"]);
+    // And they render in the detail view.
+    const detail = guides.formatGuideDetail(reloaded!);
+    assert.ok(detail.includes("Depends on: javascript"));
+    assert.ok(detail.includes("Enables: nextjs"));
+  });
+});

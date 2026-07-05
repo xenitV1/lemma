@@ -18,6 +18,7 @@ export {
   formatGuideDetail,
   setGuidesDir,
   upsertGuideToDb,
+  mergeGuideRefs,
   getGuideFromDb,
   TASK_GUIDE_MAP,
   removeMemoryFromGuides,

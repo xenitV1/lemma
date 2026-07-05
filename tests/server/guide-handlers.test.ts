@@ -103,6 +103,23 @@ describe("handleGuideUpdate", () => {
     assert.equal(loaded[0].superseded_by, "react-19");
   });
 
+  test("populates the dependency graph (depends_on / enables) end-to-end", async () => {
+    seedGuide("react", "web-frontend", "React guide");
+
+    const result = await handlers.handleGuideUpdate({
+      guide: "react",
+      add_depends_on: ["JavaScript", "react"], // mixed case + self-ref
+      add_enables: ["nextjs"],
+    });
+    assert.ok(!result.isError);
+    assert.ok(result.content[0].text.includes("Depends on: javascript"));
+    assert.ok(result.content[0].text.includes("Enables: nextjs"));
+
+    const loaded = guides.loadGuides();
+    assert.deepEqual(loaded[0].depends_on, ["javascript"], "normalized + self-ref dropped");
+    assert.deepEqual(loaded[0].enables, ["nextjs"]);
+  });
+
   test("returns error for non-existent guide", async () => {
     const result = await handlers.handleGuideUpdate({
       guide: "nonexistent",

@@ -5,7 +5,7 @@ import path from "path";
 import os from "os";
 import { LemmaDB } from "../../src/db/database.js";
 import { runMigrations } from "../../src/db/migration.js";
-import { addMemory, updateMemory, getMemoryStats } from "../../src/db/memory-store.js";
+import { addMemory, updateMemory, getMemoryStats, searchMemories } from "../../src/db/memory-store.js";
 
 let TMPDIR: string;
 let db: LemmaDB;
@@ -86,5 +86,24 @@ describe("getMemoryStats — case-insensitive project filter", () => {
     assert.equal(alphaStats.total, 1);
     const betaStats = getMemoryStats(db, "BETA");
     assert.equal(betaStats.total, 1);
+  });
+});
+
+describe("searchMemories — case-insensitive project filter (regression: bug #2)", () => {
+  test("a mixed-case project filter matches normalized stored fragments", () => {
+    addMemory(db, "use vite for bundling in this project", "ai", "Vite", "Lemma");
+    // stored as normalized "lemma"; a query scoped to "Lemma"/"LEMMA" must match.
+    assert.equal(searchMemories(db, "vite", { project: "lemma" }).length, 1);
+    assert.equal(searchMemories(db, "vite", { project: "Lemma" }).length, 1);
+    assert.equal(searchMemories(db, "vite", { project: "LEMMA" }).length, 1);
+  });
+
+  test("explicit null project returns global-only, not every project (regression: bug #3)", () => {
+    addMemory(db, "prefer tabs over spaces globally", "ai", "GlobalPref", null);
+    addMemory(db, "projA uses postgres database", "ai", "ProjA", "proja");
+    const globalOnly = searchMemories(db, "", { project: null, topK: 100 });
+    assert.ok(globalOnly.length >= 1);
+    assert.ok(globalOnly.every(f => f.project === null),
+      "a null-scoped query must not leak project-scoped fragments");
   });
 });

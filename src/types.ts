@@ -35,6 +35,8 @@ export interface MemoryFragment {
   type: FragmentType;
   related_guides: string[];
   distill_candidate?: boolean;
+  /** B2/N9: logical-invalidation timestamp. null/undefined = live; set = hidden from recall, preserved. */
+  invalidated_at?: string | null;
 }
 
 export interface Guide {
@@ -185,6 +187,22 @@ export interface LemmaConfig {
   virtual_session: {
     timeout_minutes: number;
     idle_timeout_seconds: number;
+  };
+  verification: {
+    // B6: opt-in staleness check for code-backed fragments. When on, reading a
+    // fragment with cited code evidence re-checks whether the cited snippet is
+    // still present in the file, and flags it (advisory) if it has drifted.
+    // Off by default — no filesystem reads at recall time unless enabled.
+    stale_check: boolean;
+  };
+  eviction: {
+    // Capacity-driven "Heat" eviction (roadmap B1). Off by default so today's
+    // behavior (unbounded growth) is unchanged; opt-in and config-gated. When
+    // enabled and the live-fragment count exceeds max_fragments, the coldest
+    // (lowest injectionScore/Heat) fragments are moved to fragments_archive —
+    // never hard-deleted, always restorable.
+    enabled: boolean;
+    max_fragments: number;
   };
   decay: {
     // "linear" = today's flat −0.002/run (default, unchanged). "ebbinghaus" =

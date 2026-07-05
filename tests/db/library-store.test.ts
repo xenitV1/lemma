@@ -25,8 +25,12 @@ function seedFragments(titles: string[], project: string | null = null): void {
   const stmt = db.prepareCached(
     `INSERT INTO memories (legacy_id, title, fragment, description, type, project, source, confidence, created_at, updated_at) VALUES (?, ?, ?, ?, 'fact', ?, 'ai', 0.7, datetime('now'), datetime('now'))`
   );
+  // Store the normalized (lowercased) project key, mirroring the real write path
+  // (addMemory → normalizeProject). collectFragmentSummaries normalizes its filter
+  // the same way, so a mixed-case filter still matches (regression for bug #2).
+  const normalized = project ? project.trim().toLowerCase() : null;
   for (const t of titles) {
-    stmt.run("m" + Math.random().toString(36).slice(2, 14), t, t, t, project);
+    stmt.run("m" + Math.random().toString(36).slice(2, 14), t, t, t, normalized);
   }
 }
 

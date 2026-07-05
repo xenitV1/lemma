@@ -59,6 +59,7 @@ function rowToFragment(row: Record<string, any>, relations: MemoryRelation[] = [
     type: row.type,
     related_guides: parseJsonArray(row.related_guides),
     distill_candidate: row.distill_candidate === 1,
+    invalidated_at: row.invalidated_at ?? null,
   };
 }
 
@@ -175,6 +176,7 @@ export function updateMemory(
     related_guides: string[];
     access_count: number;
     associated_with: string[];
+    invalidated_at: string | null;
   }>,
 ): boolean {
   const id = resolveId(lemmaDb, idOrLegacy);
@@ -239,6 +241,10 @@ export function updateMemory(
     setClauses.push("associated_with = ?");
     params.push(updates.associated_with.length > 0 ? JSON.stringify(updates.associated_with) : null);
   }
+  if (updates.invalidated_at !== undefined) {
+    setClauses.push("invalidated_at = ?");
+    params.push(updates.invalidated_at);
+  }
 
   if (setClauses.length === 0) return false;
 
@@ -263,6 +269,116 @@ export function deleteMemory(
   return result.changes > 0;
 }
 
+/**
+ * B1 — capacity-driven Heat eviction. When the live-fragment count exceeds
+ * `maxFragments`, move the coldest fragments (lowest Heat = injectionScore
+ * `confidence·0.7 + recency·0.3`) into fragments_archive and remove them from the
+ * working set. Never a hard delete of content — the archive keeps it, restorable.
+ * Returns the number evicted. Localized (survey O7): a single bounded query +
+ * batched moves, never a whole-memory rebuild.
+ */
+export function evictColdFragments(lemmaDb: LemmaDB, maxFragments: number): number {
+  const { db } = lemmaDb;
+  const total = (db.prepare("SELECT COUNT(*) AS c FROM memories").get() as { c: number }).c;
+  if (total <= maxFragments) return 0;
+  const toEvict = total - maxFragments;
+
+  return db.transaction(() => {
+    // Coldest first by Heat = injectionScore (confidence·0.7 + recency·0.3),
+    // recency linear over 180 days. Ties broken by oldest last-access.
+    const cold = db.prepare(
+      `SELECT id,
+         confidence * 0.7
+         + MAX(0.0, 1.0 - (julianday('now') - julianday(created_at)) / 180.0) * 0.3 AS heat
+       FROM memories
+       ORDER BY heat ASC, COALESCE(last_accessed_at, created_at) ASC
+       LIMIT ?`,
+    ).all(toEvict) as { id: number; heat: number }[];
+
+    const archive = lemmaDb.prepareCached(
+      `INSERT INTO fragments_archive (legacy_id, title, fragment, description, type, project, confidence, source, context_tags, created_at, heat)
+       SELECT legacy_id, title, fragment, description, type, project, confidence, source, context_tags, created_at, ?
+       FROM memories WHERE id = ?`,
+    );
+    const remove = lemmaDb.prepareCached("DELETE FROM memories WHERE id = ?");
+
+    let evicted = 0;
+    for (const row of cold) {
+      archive.run(row.heat, row.id);
+      remove.run(row.id);
+      evicted++;
+    }
+    logger.info("Heat eviction complete", { evicted, total, maxFragments });
+    return evicted;
+  })();
+}
+
+/** Count of archived (evicted) fragments. */
+export function getArchiveCount(lemmaDb: LemmaDB): number {
+  return (lemmaDb.prepareCached("SELECT COUNT(*) AS c FROM fragments_archive").get() as { c: number }).c;
+}
+
+/** Restore an evicted fragment from the archive back into the working set. */
+export function restoreFromArchive(lemmaDb: LemmaDB, legacyId: string): boolean {
+  const { db } = lemmaDb;
+  return db.transaction(() => {
+    const row = lemmaDb.prepareCached(
+      "SELECT * FROM fragments_archive WHERE legacy_id = ? ORDER BY archived_at DESC LIMIT 1",
+    ).get(legacyId) as Record<string, any> | undefined;
+    if (!row) return false;
+    // Skip if it somehow already exists live (avoid a UNIQUE(legacy_id) clash).
+    const exists = lemmaDb.prepareCached("SELECT 1 FROM memories WHERE legacy_id = ?").get(legacyId);
+    if (exists) return false;
+    lemmaDb.prepareCached(
+      `INSERT INTO memories (legacy_id, title, fragment, description, type, project, confidence, source, context_tags, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(row.legacy_id, row.title, row.fragment, row.description, row.type, row.project, row.confidence, row.source, row.context_tags, row.created_at);
+    lemmaDb.prepareCached("DELETE FROM fragments_archive WHERE legacy_id = ?").run(legacyId);
+    return true;
+  })();
+}
+
+export interface FragmentHistoryEntry {
+  title: string;
+  fragment: string;
+  description: string | null;
+  confidence: number;
+  type: string;
+  changed_at: string;
+}
+
+/** B2/N9: hide a fragment from recall without deleting it (logical invalidation). */
+export function invalidateMemory(lemmaDb: LemmaDB, idOrLegacy: string | number): boolean {
+  const id = resolveId(lemmaDb, idOrLegacy);
+  if (id === null) return false;
+  const result = lemmaDb
+    .prepareCached("UPDATE memories SET invalidated_at = datetime('now'), updated_at = datetime('now') WHERE id = ? AND invalidated_at IS NULL")
+    .run(id);
+  return result.changes > 0;
+}
+
+/** Reverse a logical invalidation — the fragment returns to recall. */
+export function restoreMemory(lemmaDb: LemmaDB, idOrLegacy: string | number): boolean {
+  const id = resolveId(lemmaDb, idOrLegacy);
+  if (id === null) return false;
+  const result = lemmaDb
+    .prepareCached("UPDATE memories SET invalidated_at = NULL, updated_at = datetime('now') WHERE id = ? AND invalidated_at IS NOT NULL")
+    .run(id);
+  return result.changes > 0;
+}
+
+/** Prior content versions of a fragment, newest first (populated by the AFTER UPDATE trigger). */
+export function getFragmentHistory(lemmaDb: LemmaDB, idOrLegacy: string | number, limit = 20): FragmentHistoryEntry[] {
+  const id = resolveId(lemmaDb, idOrLegacy);
+  if (id === null) return [];
+  return lemmaDb
+    .prepareCached(
+      `SELECT title, fragment, description, confidence, type, changed_at
+       FROM fragment_history WHERE memory_id = ? ORDER BY changed_at DESC, id DESC LIMIT ?`,
+    )
+    .all(id, limit) as FragmentHistoryEntry[];
+}
+
 export function searchMemories(
   lemmaDb: LemmaDB,
   query: string,
@@ -274,11 +390,17 @@ export function searchMemories(
     afterDate?: string;
     beforeDate?: string;
     all?: boolean;
+    includeInvalidated?: boolean;
   },
 ): MemoryFragment[] {
   const topK = options?.topK ?? 20;
   const conditions: string[] = [];
   const params: any[] = [];
+
+  // B2/N9: logically-invalidated fragments are hidden from recall by default.
+  if (!options?.includeInvalidated) {
+    conditions.push("m.invalidated_at IS NULL");
+  }
 
   if (options?.type) {
     conditions.push("m.type = ?");
@@ -302,8 +424,11 @@ export function searchMemories(
       if (options.project === null) {
         conditions.push("m.project IS NULL");
       } else {
+        // Normalize to the canonical project key (trim + lowercase) so the search
+        // side matches the write side. Without this a search scoped to "Lemma"
+        // misses fragments stored under the normalized "lemma".
         conditions.push("m.project = ?");
-        params.push(options.project);
+        params.push(normalizeProject(options.project));
       }
     }
   }
@@ -469,6 +594,7 @@ export function boostConfidence(
     .prepareCached(
       `UPDATE memories SET confidence = MIN(1.0, confidence + ?),
        access_count = access_count + 1,
+       access_window = access_window + 1,
        last_accessed_at = datetime('now'),
        updated_at = datetime('now')
        WHERE id = ?`,
@@ -527,7 +653,7 @@ export function decayMemories(lemmaDb: LemmaDB): number {
         const retention = Math.pow(0.5, elapsedDays / halfLife);
         const r = lemmaDb.prepareCached(
           `UPDATE memories SET confidence = MAX(0, confidence * ?), updated_at = datetime('now')
-           WHERE access_count = 0 AND confidence > 0 AND type = ?`,
+           WHERE access_window = 0 AND confidence > 0 AND type = ?`,
         ).run(retention, type);
         changed += r.changes;
       }
@@ -536,12 +662,15 @@ export function decayMemories(lemmaDb: LemmaDB): number {
       const result = lemmaDb.prepareCached(
         `UPDATE memories SET confidence = MAX(0, confidence - 0.002),
          updated_at = datetime('now')
-         WHERE access_count = 0 AND confidence > 0`,
+         WHERE access_window = 0 AND confidence > 0`,
       ).run();
       changed = result.changes;
     }
 
-    lemmaDb.prepareCached("UPDATE memories SET access_count = 0").run();
+    // Reset only the decay window, NOT the lifetime access_count. access_count is
+    // what analytics/scoring read as total usage; zeroing it here (the old bug)
+    // made every fragment look "never accessed" after each cycle.
+    lemmaDb.prepareCached("UPDATE memories SET access_window = 0").run();
     markDecayRun(lemmaDb);
     logger.info("Memory decay complete", { decayed: changed, model: decayCfg.model });
     return changed;

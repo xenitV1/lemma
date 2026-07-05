@@ -276,4 +276,115 @@ UPDATE sessions SET project = lower(project) WHERE project IS NOT NULL;
 UPDATE sessions SET project = NULL WHERE project = 'global';
 `;
 
-export const MIGRATIONS: [number, string][] = [[1, SCHEMA_V1], [2, SCHEMA_V2], [3, SCHEMA_V3]];
+export const SCHEMA_V4 = `
+-- Separate the decay "window" flag from the lifetime access counter.
+-- Historically decay overloaded access_count: it decayed rows with
+-- access_count = 0, then reset access_count = 0 for EVERY row each 24h cycle.
+-- That reset destroyed the lifetime access signal that analytics/scoring rely on
+-- (never_accessed_count, most_accessed, quality usageScore) — so right after any
+-- decay run, all fragments read as "never accessed". Fix: give decay its own
+-- window counter (access_window) and leave access_count as a true lifetime count
+-- that decay never touches. Seed the window from the current access_count so the
+-- first post-upgrade decay still spares fragments touched in the current window.
+-- Additive + idempotent (gated by schema_version); old code ignores the column.
+
+ALTER TABLE memories ADD COLUMN access_window INTEGER DEFAULT 0 NOT NULL;
+UPDATE memories SET access_window = access_count;
+`;
+
+export const SCHEMA_V5 = `
+-- B2: fragment versioning + logical invalidation (survey N9: never physically
+-- delete a superseded fact — hide it from recall but preserve its content and
+-- history). Additive + gated.
+
+-- Logical invalidation flag. NULL = live; a timestamp = hidden from recall but
+-- kept in the DB (and in fragment_history). Recall queries filter it out.
+ALTER TABLE memories ADD COLUMN invalidated_at TEXT;
+
+-- Prior-version log, populated by an AFTER UPDATE trigger whenever a fragment's
+-- CONTENT changes (title/fragment/description) — not on confidence-only touches
+-- (boost/decay), which fire constantly. Same trigger pattern as the reverse
+-- relation / FTS sync triggers.
+CREATE TABLE IF NOT EXISTS fragment_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  memory_id INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  fragment TEXT NOT NULL,
+  description TEXT,
+  confidence REAL NOT NULL,
+  type TEXT NOT NULL,
+  changed_at TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_fragment_history_memory ON fragment_history(memory_id);
+
+CREATE TRIGGER IF NOT EXISTS memories_history_au AFTER UPDATE ON memories
+WHEN old.fragment <> new.fragment
+  OR old.title <> new.title
+  OR IFNULL(old.description, '') <> IFNULL(new.description, '')
+BEGIN
+  INSERT INTO fragment_history (memory_id, title, fragment, description, confidence, type, changed_at)
+  VALUES (old.id, old.title, old.fragment, old.description, old.confidence, old.type, datetime('now'));
+END;
+`;
+
+export const SCHEMA_V6 = `
+-- B1: capacity-driven "Heat" eviction target. When the live-fragment count
+-- exceeds a config threshold, the coldest fragments (lowest injectionScore Heat)
+-- are MOVED here instead of being hard-deleted (survey 2.4 eviction; O4 never
+-- destroy user data). Restorable. Additive + gated; empty and inert until the
+-- opt-in eviction.enabled config is set.
+CREATE TABLE IF NOT EXISTS fragments_archive (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  legacy_id TEXT,
+  title TEXT NOT NULL,
+  fragment TEXT NOT NULL,
+  description TEXT,
+  type TEXT NOT NULL,
+  project TEXT,
+  confidence REAL NOT NULL,
+  source TEXT NOT NULL,
+  context_tags TEXT,
+  created_at TEXT,
+  heat REAL,
+  archived_at TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_fragments_archive_legacy ON fragments_archive(legacy_id);
+`;
+
+export const SCHEMA_V7 = `
+-- B6: code-evidence for a fragment (community PR #1, embeddings deliberately
+-- excluded). A code-backed fragment may cite a file + optional symbol + the exact
+-- snippet it was derived from, plus a SHA-256 of that snippet. An opt-in recall
+-- check re-reads the file and flags the fragment stale if the snippet has drifted
+-- — never hard-deleted, advisory only. Additive + gated; Windows-safe (text
+-- search, no native parsing).
+CREATE TABLE IF NOT EXISTS memory_evidence (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  memory_id INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+  file_path TEXT NOT NULL,
+  symbol TEXT,
+  snippet TEXT NOT NULL,
+  snippet_hash TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_evidence_memory ON memory_evidence(memory_id);
+`;
+
+export const SCHEMA_V8 = `
+-- A4: TF-IDF vector cache. Term frequencies are corpus-independent (only IDF
+-- depends on the corpus), so caching the per-fragment TF map keyed by a content
+-- hash lets hybrid retrieval skip re-tokenizing unchanged fragments each query
+-- — killing the O(N) rebuild cost. Falls back to live compute on a miss/mismatch.
+-- Additive + gated; safe to drop/rebuild at any time (pure cache).
+CREATE TABLE IF NOT EXISTS tfidf_cache (
+  legacy_id TEXT PRIMARY KEY REFERENCES memories(legacy_id) ON DELETE CASCADE,
+  content_hash TEXT NOT NULL,
+  terms TEXT NOT NULL,
+  updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+);
+`;
+
+export const MIGRATIONS: [number, string][] = [[1, SCHEMA_V1], [2, SCHEMA_V2], [3, SCHEMA_V3], [4, SCHEMA_V4], [5, SCHEMA_V5], [6, SCHEMA_V6], [7, SCHEMA_V7], [8, SCHEMA_V8]];

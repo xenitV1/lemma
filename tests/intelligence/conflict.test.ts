@@ -168,3 +168,19 @@ describe("formatConflictResults", () => {
     assert.ok(result.includes("contradicts"));
   });
 });
+
+describe("scoring parity: incremental and batch paths agree (regression)", () => {
+  test("detectConflict and scanForConflicts report the same severity for a pair", () => {
+    // Negation-parity differs, high topic overlap, NO antonym signal word — so the
+    // (formerly divergent) negation formula alone decides the score. The two paths
+    // must now agree; before unification they returned 0.80 vs 0.75.
+    const a = makeFragment("a", "we use redis caching for session storage");
+    const b = makeFragment("b", "we do not use redis caching for session storage");
+    const inc = detectConflict(b, [a]);
+    const bat = scanForConflicts([a, b]);
+    assert.equal(inc.length, 1, "incremental path must flag the pair");
+    assert.equal(bat.length, 1, "batch path must flag the pair");
+    assert.equal(inc[0].overlap_score, bat[0].overlap_score,
+      "both paths must report identical conflict severity");
+  });
+});

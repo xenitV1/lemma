@@ -140,3 +140,22 @@ describe("findSemanticSimilarPairs", () => {
     assert.ok(pairs.length <= 3);
   });
 });
+
+describe("query/corpus IDF consistency (regression: negative-weight bug)", () => {
+  test("a document sharing the query's terms scores positively, not negative", () => {
+    // 'config' appears in many docs (high df). The old code weighted the query
+    // with n=1 while the corpus used n=N, flipping common-term weights negative
+    // so term-sharing docs got NEGATIVE cosine similarity. They must be positive.
+    const corpus = Array.from({ length: 6 }, (_, i) =>
+      makeFragment(`c${i}`, `config option config value setting number ${i}`)
+    );
+    corpus.push(makeFragment("k", "kafka broker consumer producer partition offset"));
+    const vectors = buildVectors(corpus);
+    const results = findSemanticSimilar("config value", vectors, 10, -999);
+    const sharing = results.filter(r => r.memory_id.startsWith("c"));
+    assert.ok(sharing.length > 0, "docs sharing query terms should be returned");
+    for (const r of sharing) {
+      assert.ok(r.score > 0, `term-sharing doc ${r.memory_id} must score > 0, got ${r.score}`);
+    }
+  });
+});

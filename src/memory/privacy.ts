@@ -13,7 +13,11 @@ const SECRET_PATTERNS: Array<{ pattern: RegExp; type: string }> = [
   { pattern: /ghs_[a-zA-Z0-9]{36}/g, type: "GitHub app token" },
   { pattern: /ghu_[a-zA-Z0-9]{36}/g, type: "GitHub user-to-server token" },
   { pattern: /xox[bpas]-[a-zA-Z0-9-]+/g, type: "Slack token" },
-  { pattern: /-----BEGIN (?:RSA |EC |DSA )?PRIVATE KEY-----/g, type: "Private key" },
+  // Match the WHOLE PEM block, not just the header line — otherwise the actual
+  // key material between BEGIN and END survived redaction. First alternative
+  // spans BEGIN…END (lazy `[\s\S]*?` across newlines); the fallback catches a
+  // bare/truncated header with no END so a partial key is still flagged.
+  { pattern: /-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY-----|-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----/g, type: "Private key" },
   { pattern: /mongodb(?:\+srv)?:\/\/[^\s"']+/g, type: "MongoDB connection string" },
   { pattern: /postgres(?:ql)?:\/\/[^\s"']+/g, type: "PostgreSQL connection string" },
   { pattern: /mysql:\/\/[^\s"']+/g, type: "MySQL connection string" },
@@ -22,6 +26,9 @@ const SECRET_PATTERNS: Array<{ pattern: RegExp; type: string }> = [
   { pattern: /AIza[0-9A-Za-z_-]{35}/g, type: "Google API key" },
   { pattern: /whsec_[a-zA-Z0-9]+/g, type: "Webhook secret" },
   { pattern: /password\s*[=:]\s*["'][^"']{4,}["']/gi, type: "Password in assignment" },
+  // Unquoted assignment too (password=hunter2). Value runs to whitespace/quote/
+  // separator so we don't swallow following words; require ≥4 non-space chars.
+  { pattern: /password\s*[=:]\s*[^\s"';,]{4,}/gi, type: "Password in assignment" },
   { pattern: /Bearer\s+[a-zA-Z0-9\-._~+/]+=*/g, type: "Bearer token" },
 ];
 
