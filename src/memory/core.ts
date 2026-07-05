@@ -1020,6 +1020,63 @@ export function injectionScore(fragment: MemoryFragment): number {
   return confidence * 0.7 + recency * 0.3;
 }
 
+export interface GraphNode {
+  fragment: MemoryFragment;
+  depth: number;
+  score: number;
+}
+
+/**
+ * Bounded-depth traversal of the relations graph from a root fragment (roadmap
+ * A3). BFS to `maxDepth` (default 2), at most `fanout` (default 5) edges expanded
+ * per node — ordered by target confidence so the strongest links win the budget —
+ * with a `0.6^depth` distance penalty applied to each node's confidence. The root
+ * is excluded; each reachable fragment appears once at its shallowest depth.
+ * LLM-free, pure SQLite over the existing relations table.
+ */
+export function expandGraph(rootId: string, maxDepth = 2, fanout = 5): GraphNode[] {
+  try {
+    const db = getDb();
+    const rootRow = db.prepareCached("SELECT id FROM memories WHERE legacy_id = ?").get(rootId) as
+      | { id: number }
+      | undefined;
+    if (!rootRow) return [];
+
+    const visited = new Set<string>([rootId]);
+    const out: GraphNode[] = [];
+    let frontier: { legacyId: string; internalId: number }[] = [{ legacyId: rootId, internalId: rootRow.id }];
+
+    for (let depth = 1; depth <= maxDepth && frontier.length > 0; depth++) {
+      const nextFrontier: { legacyId: string; internalId: number }[] = [];
+      for (const node of frontier) {
+        const rels = db.prepareCached(
+          `SELECT m.id as tid, m.legacy_id as tlegacy
+           FROM relations r JOIN memories m ON m.id = r.target_id
+           WHERE r.source_id = ?
+           ORDER BY m.confidence DESC
+           LIMIT ?`,
+        ).all(node.internalId, fanout) as { tid: number; tlegacy: string }[];
+
+        for (const rel of rels) {
+          if (visited.has(rel.tlegacy)) continue;
+          visited.add(rel.tlegacy);
+          const frag = getFragmentById(rel.tlegacy);
+          if (!frag) continue;
+          out.push({ fragment: frag, depth, score: frag.confidence * Math.pow(0.6, depth) });
+          nextFrontier.push({ legacyId: rel.tlegacy, internalId: rel.tid });
+        }
+      }
+      frontier = nextFrontier;
+    }
+
+    out.sort((a, b) => b.score - a.score);
+    return out;
+  } catch (err) {
+    logger.warn("expandGraph failed", { error: String(err) });
+    return [];
+  }
+}
+
 export async function searchAndSortFragments(fragments: MemoryFragment[], query: string | null = null, topK = 30): Promise<MemoryFragment[]> {
   logger.flow("search", "start", { query: query?.slice(0, 50), topK, totalFragments: fragments.length });
   const nowDate = new Date().toISOString();

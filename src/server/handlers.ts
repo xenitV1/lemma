@@ -58,6 +58,7 @@ interface MemoryReadArgs {
   limit?: number;
   offset?: number;
   response_format?: "markdown" | "json";
+  expand_graph?: boolean;
 }
 
 interface MemoryAddArgs {
@@ -960,11 +961,24 @@ export async function handleMemoryRead(args?: MemoryReadArgs): Promise<ToolResul
     }
     const boosted = core.boostOnAccess(fragment, context);
     trackReadIntoSession([detailId]);
+
+    // A3: optional bounded-depth graph expansion from this fragment.
+    let graph: ReturnType<typeof core.expandGraph> = [];
+    let detailText = core.formatMemoryDetail(boosted);
+    if (args?.expand_graph) {
+      graph = core.expandGraph(detailId);
+      if (graph.length > 0) {
+        const lines = graph.map(
+          g => `- [${g.fragment.id}] (depth ${g.depth}, score ${g.score.toFixed(2)}) ${g.fragment.title}: ${g.fragment.description || g.fragment.fragment.slice(0, 80)}`,
+        );
+        detailText += `\n\n## Related knowledge (graph, depth ≤ 2)\n${lines.join("\n")}`;
+      }
+    }
     notifyMemoryChange();
 
-    logger.flow("memory_read", "complete_single", { id: detailId, confidence: boosted.confidence?.toFixed(2) });
+    logger.flow("memory_read", "complete_single", { id: detailId, confidence: boosted.confidence?.toFixed(2), graph: graph.length });
     return {
-      content: [{ type: "text", text: core.formatMemoryDetail(boosted) }],
+      content: [{ type: "text", text: detailText }],
       structuredContent: {
         count: 1,
         fragments: [{
@@ -977,6 +991,14 @@ export async function handleMemoryRead(args?: MemoryReadArgs): Promise<ToolResul
           fragment: boosted.fragment ?? null,
           created: boosted.created ?? null,
         }],
+        ...(args?.expand_graph ? {
+          related_graph: graph.map(g => ({
+            id: g.fragment.id,
+            title: g.fragment.title,
+            depth: g.depth,
+            score: g.score,
+          })),
+        } : {}),
         has_more: false,
         next_offset: null,
       },

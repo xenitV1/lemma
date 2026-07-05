@@ -13,6 +13,7 @@ export {
   filterByProject,
   searchAndSortFragments,
   injectionScore,
+  expandGraph,
   filterFragments,
   formatMemoryForLLM,
   formatMemoryDetail,

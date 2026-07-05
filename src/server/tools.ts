@@ -230,6 +230,10 @@ export const TOOLS: ToolDefinition[] = [
           enum: ["markdown", "json"],
           description: "Response format: 'markdown' (default, human-readable) or 'json' (machine-readable structured payload). Optional.",
         },
+        expand_graph: {
+          type: "boolean",
+          description: "When reading a specific fragment (id), also surface related fragments reachable through its relations (bounded traversal: depth ≤ 2, strongest links first). Default: false. Optional.",
+        },
       },
     },
     annotations: DEFAULT_WRITE,
@@ -238,6 +242,7 @@ export const TOOLS: ToolDefinition[] = [
       properties: {
         count: { type: "number", description: "Number of fragments returned in this response." },
         fragments: { type: "array", items: { type: "object" }, description: "Matching memory fragments (summary fields, or full content for id/ids)." },
+        related_graph: { type: "array", items: { type: "object" }, description: "Fragments reached via relations when expand_graph is set (id, title, depth, score)." },
         has_more: { type: "boolean", description: "Whether more results are available beyond this page." },
         next_offset: { type: ["number", "null"], description: "Offset to pass for the next page, if has_more is true. Null when there is no further page." },
       },
