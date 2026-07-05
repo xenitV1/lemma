@@ -9,6 +9,7 @@ export {
   saveMemory,
   saveMemorySafe,
   applySessionDecay,
+  applyEviction,
   migrateConfidenceFloor,
   filterByProject,
   searchAndSortFragments,

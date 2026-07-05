@@ -278,6 +278,13 @@ async function initializeContext(): Promise<void> {
   core.applySessionDecay();
   logger.flow("initialize_context", "decay_applied");
 
+  // B1: capacity-driven Heat eviction (opt-in; no-op unless configured).
+  const evicted = core.applyEviction();
+  if (evicted > 0) {
+    logger.info(`Eviction: archived ${evicted} cold fragment(s)`);
+  }
+  logger.flow("initialize_context", "eviction_applied", { evicted });
+
   detectedProject = core.detectProject();
 
   if (detectedProject) {

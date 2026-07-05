@@ -24,6 +24,12 @@ const DEFAULT_CONFIG: LemmaConfig = {
     timeout_minutes: 30,
     idle_timeout_seconds: 120,
   },
+  eviction: {
+    // Off by default (unbounded, today's behavior). A high threshold applies
+    // only once enabled; eviction archives the coldest fragments, never deletes.
+    enabled: false,
+    max_fragments: 10000,
+  },
   decay: {
     // Default keeps today's exact behavior (flat linear); the ebbinghaus curve
     // is opt-in until validated on real data (roadmap B5).

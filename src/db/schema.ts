@@ -328,4 +328,29 @@ BEGIN
 END;
 `;
 
-export const MIGRATIONS: [number, string][] = [[1, SCHEMA_V1], [2, SCHEMA_V2], [3, SCHEMA_V3], [4, SCHEMA_V4], [5, SCHEMA_V5]];
+export const SCHEMA_V6 = `
+-- B1: capacity-driven "Heat" eviction target. When the live-fragment count
+-- exceeds a config threshold, the coldest fragments (lowest injectionScore Heat)
+-- are MOVED here instead of being hard-deleted (survey 2.4 eviction; O4 never
+-- destroy user data). Restorable. Additive + gated; empty and inert until the
+-- opt-in eviction.enabled config is set.
+CREATE TABLE IF NOT EXISTS fragments_archive (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  legacy_id TEXT,
+  title TEXT NOT NULL,
+  fragment TEXT NOT NULL,
+  description TEXT,
+  type TEXT NOT NULL,
+  project TEXT,
+  confidence REAL NOT NULL,
+  source TEXT NOT NULL,
+  context_tags TEXT,
+  created_at TEXT,
+  heat REAL,
+  archived_at TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_fragments_archive_legacy ON fragments_archive(legacy_id);
+`;
+
+export const MIGRATIONS: [number, string][] = [[1, SCHEMA_V1], [2, SCHEMA_V2], [3, SCHEMA_V3], [4, SCHEMA_V4], [5, SCHEMA_V5], [6, SCHEMA_V6]];

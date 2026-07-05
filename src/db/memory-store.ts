@@ -269,6 +269,75 @@ export function deleteMemory(
   return result.changes > 0;
 }
 
+/**
+ * B1 — capacity-driven Heat eviction. When the live-fragment count exceeds
+ * `maxFragments`, move the coldest fragments (lowest Heat = injectionScore
+ * `confidence·0.7 + recency·0.3`) into fragments_archive and remove them from the
+ * working set. Never a hard delete of content — the archive keeps it, restorable.
+ * Returns the number evicted. Localized (survey O7): a single bounded query +
+ * batched moves, never a whole-memory rebuild.
+ */
+export function evictColdFragments(lemmaDb: LemmaDB, maxFragments: number): number {
+  const { db } = lemmaDb;
+  const total = (db.prepare("SELECT COUNT(*) AS c FROM memories").get() as { c: number }).c;
+  if (total <= maxFragments) return 0;
+  const toEvict = total - maxFragments;
+
+  return db.transaction(() => {
+    // Coldest first by Heat = injectionScore (confidence·0.7 + recency·0.3),
+    // recency linear over 180 days. Ties broken by oldest last-access.
+    const cold = db.prepare(
+      `SELECT id,
+         confidence * 0.7
+         + MAX(0.0, 1.0 - (julianday('now') - julianday(created_at)) / 180.0) * 0.3 AS heat
+       FROM memories
+       ORDER BY heat ASC, COALESCE(last_accessed_at, created_at) ASC
+       LIMIT ?`,
+    ).all(toEvict) as { id: number; heat: number }[];
+
+    const archive = lemmaDb.prepareCached(
+      `INSERT INTO fragments_archive (legacy_id, title, fragment, description, type, project, confidence, source, context_tags, created_at, heat)
+       SELECT legacy_id, title, fragment, description, type, project, confidence, source, context_tags, created_at, ?
+       FROM memories WHERE id = ?`,
+    );
+    const remove = lemmaDb.prepareCached("DELETE FROM memories WHERE id = ?");
+
+    let evicted = 0;
+    for (const row of cold) {
+      archive.run(row.heat, row.id);
+      remove.run(row.id);
+      evicted++;
+    }
+    logger.info("Heat eviction complete", { evicted, total, maxFragments });
+    return evicted;
+  })();
+}
+
+/** Count of archived (evicted) fragments. */
+export function getArchiveCount(lemmaDb: LemmaDB): number {
+  return (lemmaDb.prepareCached("SELECT COUNT(*) AS c FROM fragments_archive").get() as { c: number }).c;
+}
+
+/** Restore an evicted fragment from the archive back into the working set. */
+export function restoreFromArchive(lemmaDb: LemmaDB, legacyId: string): boolean {
+  const { db } = lemmaDb;
+  return db.transaction(() => {
+    const row = lemmaDb.prepareCached(
+      "SELECT * FROM fragments_archive WHERE legacy_id = ? ORDER BY archived_at DESC LIMIT 1",
+    ).get(legacyId) as Record<string, any> | undefined;
+    if (!row) return false;
+    // Skip if it somehow already exists live (avoid a UNIQUE(legacy_id) clash).
+    const exists = lemmaDb.prepareCached("SELECT 1 FROM memories WHERE legacy_id = ?").get(legacyId);
+    if (exists) return false;
+    lemmaDb.prepareCached(
+      `INSERT INTO memories (legacy_id, title, fragment, description, type, project, confidence, source, context_tags, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(row.legacy_id, row.title, row.fragment, row.description, row.type, row.project, row.confidence, row.source, row.context_tags, row.created_at);
+    lemmaDb.prepareCached("DELETE FROM fragments_archive WHERE legacy_id = ?").run(legacyId);
+    return true;
+  })();
+}
+
 export interface FragmentHistoryEntry {
   title: string;
   fragment: string;

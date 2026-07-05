@@ -188,6 +188,15 @@ export interface LemmaConfig {
     timeout_minutes: number;
     idle_timeout_seconds: number;
   };
+  eviction: {
+    // Capacity-driven "Heat" eviction (roadmap B1). Off by default so today's
+    // behavior (unbounded growth) is unchanged; opt-in and config-gated. When
+    // enabled and the live-fragment count exceeds max_fragments, the coldest
+    // (lowest injectionScore/Heat) fragments are moved to fragments_archive —
+    // never hard-deleted, always restorable.
+    enabled: boolean;
+    max_fragments: number;
+  };
   decay: {
     // "linear" = today's flat −0.002/run (default, unchanged). "ebbinghaus" =
     // opt-in exponential, type-aware forgetting keyed off time-since-access.

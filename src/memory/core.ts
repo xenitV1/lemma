@@ -9,6 +9,7 @@ import { getDb, setDataDir } from "../db/database.js";
 import * as store from "../db/memory-store.js";
 import { sanitizeFtsQuery } from "../db/fts.js";
 import { calculateQualityScore } from "../intelligence/scoring.js";
+import { loadConfig } from "./config.js";
 
 let MEMORY_DIR = path.join(os.homedir(), ".lemma");
 
@@ -876,6 +877,24 @@ export function applySessionDecay(): MemoryFragment[] {
   const memory = loadMemory();
   logger.flow("decay", "session_complete", { count: memory.length });
   return memory;
+}
+
+/**
+ * B1: capacity-driven Heat eviction. No-op unless eviction.enabled and the live
+ * count exceeds eviction.max_fragments. Archives the coldest fragments (never a
+ * content delete). Returns the number evicted.
+ */
+export function applyEviction(): number {
+  try {
+    const cfg = loadConfig();
+    if (!cfg.eviction?.enabled) return 0;
+    const evicted = store.evictColdFragments(getDb(), cfg.eviction.max_fragments);
+    if (evicted > 0) logger.info(`Heat eviction archived ${evicted} cold fragment(s)`);
+    return evicted;
+  } catch (err) {
+    logger.warn("applyEviction failed", { error: String(err) });
+    return 0;
+  }
 }
 
 export function migrateConfidenceFloor(): number {
