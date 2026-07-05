@@ -30,3 +30,10 @@ export {
   findSemanticSimilarPairs,
   semanticSearch,
 } from "./semantic.js";
+
+export {
+  computeSelfConsistency,
+  scanOutcomeConsistency,
+  outcomeConsistencySuggestions,
+} from "./consistency.js";
+export type { ConsistencyResult, ConsistencyVerdict } from "./consistency.js";

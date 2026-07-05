@@ -2417,6 +2417,24 @@ export async function handleProactiveAnalysis(args?: { project?: string; respons
     });
   }
 
+  // C4 — self-consistency: flag fragments whose historical session outcomes
+  // diverge or trend to failure, and note strongly-corroborated ones (advisory).
+  try {
+    const titleById = new Map(filtered.map(f => [f.id, f.title] as const));
+    const consistencySuggestions = intel.outcomeConsistencySuggestions(
+      getDb(),
+      (id) => titleById.get(id) ?? null,
+    ).filter(s => {
+      // Keep only suggestions about fragments in the current scope (or the
+      // aggregate corroboration note, which references none).
+      const m = s.message.match(/\[([^\]]+)\]/);
+      return !m || titleById.has(m[1]);
+    });
+    suggestions.push(...consistencySuggestions);
+  } catch (err) {
+    logger.warn("proactive_analysis consistency failed", { error: String(err) });
+  }
+
   let output = `=== PROACTIVE ANALYSIS ===\n`;
   output += `Analyzed ${filtered.length} memories and ${allGuides.length} guides.\n\n`;
   output += intel.formatSuggestions(suggestions);
