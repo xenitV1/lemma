@@ -37,6 +37,7 @@
     "test:mcp": "node tests/manual/mcp-smoke.mjs",
     "test:mcp:c2": "node tests/manual/c2-quality-mcp.mjs",
     "test:mcp:wave2": "node tests/manual/wave2-mcp.mjs",
+    "test:mcp:wave3": "node tests/manual/wave3-mcp.mjs",
     "test:mcp:glm": "node tests/manual/glm-agent-mcp.mjs"
   },
   "keywords": [
