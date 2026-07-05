@@ -292,4 +292,40 @@ ALTER TABLE memories ADD COLUMN access_window INTEGER DEFAULT 0 NOT NULL;
 UPDATE memories SET access_window = access_count;
 `;
 
-export const MIGRATIONS: [number, string][] = [[1, SCHEMA_V1], [2, SCHEMA_V2], [3, SCHEMA_V3], [4, SCHEMA_V4]];
+export const SCHEMA_V5 = `
+-- B2: fragment versioning + logical invalidation (survey N9: never physically
+-- delete a superseded fact — hide it from recall but preserve its content and
+-- history). Additive + gated.
+
+-- Logical invalidation flag. NULL = live; a timestamp = hidden from recall but
+-- kept in the DB (and in fragment_history). Recall queries filter it out.
+ALTER TABLE memories ADD COLUMN invalidated_at TEXT;
+
+-- Prior-version log, populated by an AFTER UPDATE trigger whenever a fragment's
+-- CONTENT changes (title/fragment/description) — not on confidence-only touches
+-- (boost/decay), which fire constantly. Same trigger pattern as the reverse
+-- relation / FTS sync triggers.
+CREATE TABLE IF NOT EXISTS fragment_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  memory_id INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  fragment TEXT NOT NULL,
+  description TEXT,
+  confidence REAL NOT NULL,
+  type TEXT NOT NULL,
+  changed_at TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_fragment_history_memory ON fragment_history(memory_id);
+
+CREATE TRIGGER IF NOT EXISTS memories_history_au AFTER UPDATE ON memories
+WHEN old.fragment <> new.fragment
+  OR old.title <> new.title
+  OR IFNULL(old.description, '') <> IFNULL(new.description, '')
+BEGIN
+  INSERT INTO fragment_history (memory_id, title, fragment, description, confidence, type, changed_at)
+  VALUES (old.id, old.title, old.fragment, old.description, old.confidence, old.type, datetime('now'));
+END;
+`;
+
+export const MIGRATIONS: [number, string][] = [[1, SCHEMA_V1], [2, SCHEMA_V2], [3, SCHEMA_V3], [4, SCHEMA_V4], [5, SCHEMA_V5]];

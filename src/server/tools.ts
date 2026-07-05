@@ -339,7 +339,7 @@ export const TOOLS: ToolDefinition[] = [
   },
   {
     name: "memory_forget",
-    description: "Remove a memory fragment by ID. Pass consolidate=true to archive (down-weight, keep, reversible) instead of hard-deleting.",
+    description: "Remove a memory fragment by ID. Pass consolidate=true to archive (down-weight, keep, reversible), or invalidate=true to hide it from recall while preserving its content and version history (reversible), instead of hard-deleting.",
     inputSchema: {
       additionalProperties: false,
       type: "object",
@@ -351,6 +351,10 @@ export const TOOLS: ToolDefinition[] = [
         consolidate: {
           type: "boolean",
           description: "If true, archive the fragment (down-weight to 0.05 so recall ignores it) instead of deleting it — non-destructive and reversible. Default false (hard delete).",
+        },
+        invalidate: {
+          type: "boolean",
+          description: "If true, logically invalidate the fragment: hidden from recall entirely but kept in the DB with its full version history, and reversible. Use for superseded/outdated facts you may want to audit later. Takes precedence over consolidate. Default false.",
         },
       },
       required: ["id"],

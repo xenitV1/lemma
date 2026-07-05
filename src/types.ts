@@ -35,6 +35,8 @@ export interface MemoryFragment {
   type: FragmentType;
   related_guides: string[];
   distill_candidate?: boolean;
+  /** B2/N9: logical-invalidation timestamp. null/undefined = live; set = hidden from recall, preserved. */
+  invalidated_at?: string | null;
 }
 
 export interface Guide {

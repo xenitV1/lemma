@@ -466,15 +466,19 @@ export function addRelation(fragments: MemoryFragment[], sourceId: string, targe
   return true;
 }
 
-export function loadMemory(): MemoryFragment[] {
+export function loadMemory(opts?: { includeInvalidated?: boolean }): MemoryFragment[] {
   logger.data("memory.sqlite", "load_start");
   try {
     const db = getDb();
 
+    // B2/N9: logically-invalidated fragments are excluded from recall by default
+    // (kept in the DB + fragment_history; pass includeInvalidated to see them).
+    const invalidatedClause = opts?.includeInvalidated ? "" : "WHERE m.invalidated_at IS NULL";
     const rows = db.prepareCached(
       `SELECT m.*, p.legacy_id as parent_legacy_id
        FROM memories m
        LEFT JOIN memories p ON m.parent_id = p.id
+       ${invalidatedClause}
        ORDER BY m.confidence DESC`
     ).all() as Record<string, any>[];
 
@@ -565,6 +569,7 @@ function rowToFragment(row: Record<string, any>, relations: MemoryRelation[] = [
     type: row.type,
     related_guides: parseJsonField(row.related_guides),
     distill_candidate: row.distill_candidate === 1,
+    invalidated_at: row.invalidated_at ?? null,
   };
 }
 
@@ -788,6 +793,36 @@ export function deleteMemory(id: string): boolean {
     const msg = error instanceof Error ? error.message : String(error);
     logger.error("Failed to delete memory from SQLite", msg);
     return false;
+  }
+}
+
+/** B2/N9: logically invalidate a fragment (hide from recall, keep in DB + history). */
+export function invalidateFragment(id: string): boolean {
+  try {
+    return store.invalidateMemory(getDb(), id);
+  } catch (err) {
+    logger.warn("invalidateFragment failed", { id, error: String(err) });
+    return false;
+  }
+}
+
+/** Reverse a logical invalidation. */
+export function restoreFragment(id: string): boolean {
+  try {
+    return store.restoreMemory(getDb(), id);
+  } catch (err) {
+    logger.warn("restoreFragment failed", { id, error: String(err) });
+    return false;
+  }
+}
+
+/** Prior content versions of a fragment (newest first). */
+export function getFragmentHistory(id: string, limit = 20): store.FragmentHistoryEntry[] {
+  try {
+    return store.getFragmentHistory(getDb(), id, limit);
+  } catch (err) {
+    logger.warn("getFragmentHistory failed", { id, error: String(err) });
+    return [];
   }
 }
 

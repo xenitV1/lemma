@@ -81,6 +81,7 @@ interface MemoryUpdateArgs {
 interface MemoryForgetArgs {
   id?: string;
   consolidate?: boolean;
+  invalidate?: boolean;
 }
 
 interface MemoryFeedbackArgs {
@@ -1410,6 +1411,19 @@ export async function handleMemoryForget(args?: MemoryForgetArgs): Promise<ToolR
     return {
       content: [{ type: "text", text: `Error: Fragment with ID '${id}' not found` }],
       isError: true,
+    };
+  }
+
+  // B2/N9: logical invalidation — hide from recall, keep the row + its full
+  // version history, fully reversible via restore. Stronger than consolidate's
+  // down-weight (which only lowers rank); invalidated fragments never surface.
+  if (args?.invalidate === true) {
+    core.invalidateFragment(id);
+    notifyMemoryChange();
+    logger.flow("memory_forget", "complete_invalidate", { id });
+    return {
+      content: [{ type: "text", text: `Invalidated fragment [${id}] — hidden from recall but preserved (content + history kept). Reversible.` }],
+      structuredContent: { success: true, id },
     };
   }
 

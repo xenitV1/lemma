@@ -59,6 +59,7 @@ function rowToFragment(row: Record<string, any>, relations: MemoryRelation[] = [
     type: row.type,
     related_guides: parseJsonArray(row.related_guides),
     distill_candidate: row.distill_candidate === 1,
+    invalidated_at: row.invalidated_at ?? null,
   };
 }
 
@@ -175,6 +176,7 @@ export function updateMemory(
     related_guides: string[];
     access_count: number;
     associated_with: string[];
+    invalidated_at: string | null;
   }>,
 ): boolean {
   const id = resolveId(lemmaDb, idOrLegacy);
@@ -239,6 +241,10 @@ export function updateMemory(
     setClauses.push("associated_with = ?");
     params.push(updates.associated_with.length > 0 ? JSON.stringify(updates.associated_with) : null);
   }
+  if (updates.invalidated_at !== undefined) {
+    setClauses.push("invalidated_at = ?");
+    params.push(updates.invalidated_at);
+  }
 
   if (setClauses.length === 0) return false;
 
@@ -263,6 +269,47 @@ export function deleteMemory(
   return result.changes > 0;
 }
 
+export interface FragmentHistoryEntry {
+  title: string;
+  fragment: string;
+  description: string | null;
+  confidence: number;
+  type: string;
+  changed_at: string;
+}
+
+/** B2/N9: hide a fragment from recall without deleting it (logical invalidation). */
+export function invalidateMemory(lemmaDb: LemmaDB, idOrLegacy: string | number): boolean {
+  const id = resolveId(lemmaDb, idOrLegacy);
+  if (id === null) return false;
+  const result = lemmaDb
+    .prepareCached("UPDATE memories SET invalidated_at = datetime('now'), updated_at = datetime('now') WHERE id = ? AND invalidated_at IS NULL")
+    .run(id);
+  return result.changes > 0;
+}
+
+/** Reverse a logical invalidation — the fragment returns to recall. */
+export function restoreMemory(lemmaDb: LemmaDB, idOrLegacy: string | number): boolean {
+  const id = resolveId(lemmaDb, idOrLegacy);
+  if (id === null) return false;
+  const result = lemmaDb
+    .prepareCached("UPDATE memories SET invalidated_at = NULL, updated_at = datetime('now') WHERE id = ? AND invalidated_at IS NOT NULL")
+    .run(id);
+  return result.changes > 0;
+}
+
+/** Prior content versions of a fragment, newest first (populated by the AFTER UPDATE trigger). */
+export function getFragmentHistory(lemmaDb: LemmaDB, idOrLegacy: string | number, limit = 20): FragmentHistoryEntry[] {
+  const id = resolveId(lemmaDb, idOrLegacy);
+  if (id === null) return [];
+  return lemmaDb
+    .prepareCached(
+      `SELECT title, fragment, description, confidence, type, changed_at
+       FROM fragment_history WHERE memory_id = ? ORDER BY changed_at DESC, id DESC LIMIT ?`,
+    )
+    .all(id, limit) as FragmentHistoryEntry[];
+}
+
 export function searchMemories(
   lemmaDb: LemmaDB,
   query: string,
@@ -274,11 +321,17 @@ export function searchMemories(
     afterDate?: string;
     beforeDate?: string;
     all?: boolean;
+    includeInvalidated?: boolean;
   },
 ): MemoryFragment[] {
   const topK = options?.topK ?? 20;
   const conditions: string[] = [];
   const params: any[] = [];
+
+  // B2/N9: logically-invalidated fragments are hidden from recall by default.
+  if (!options?.includeInvalidated) {
+    conditions.push("m.invalidated_at IS NULL");
+  }
 
   if (options?.type) {
     conditions.push("m.type = ?");
