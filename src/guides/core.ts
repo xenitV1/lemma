@@ -13,8 +13,29 @@ interface GuideUpdates {
   description?: string;
   add_anti_patterns?: string[];
   add_pitfalls?: string[];
+  add_depends_on?: string[];
+  add_enables?: string[];
   superseded_by?: string;
   deprecated?: boolean;
+}
+
+/**
+ * Merge guide-dependency-graph edges (depends_on / enables). Names are
+ * normalized to the canonical lowercased+trimmed form guides are stored under,
+ * de-duplicated against what's already there, and empties + self-references are
+ * dropped (a guide can't depend on or enable itself).
+ */
+export function mergeGuideRefs(existing: string[] | undefined, additions: string[], selfName: string): string[] {
+  const self = selfName.toLowerCase().trim();
+  const out = [...(existing || [])];
+  const seen = new Set(out);
+  for (const raw of additions) {
+    const name = (raw || "").toLowerCase().trim();
+    if (!name || name === self || seen.has(name)) continue;
+    seen.add(name);
+    out.push(name);
+  }
+  return out;
 }
 
 let _guidesDir: string = path.join(os.homedir(), ".lemma");
@@ -378,6 +399,14 @@ export function updateGuide(guides: Guide[], guideName: string, updates: GuideUp
   if (updates.add_pitfalls) {
     guide.known_pitfalls = [...(guide.known_pitfalls || []), ...updates.add_pitfalls];
     fieldsUpdated.push("pitfalls");
+  }
+  if (updates.add_depends_on) {
+    guide.depends_on = mergeGuideRefs(guide.depends_on, updates.add_depends_on, guide.guide);
+    fieldsUpdated.push("depends_on");
+  }
+  if (updates.add_enables) {
+    guide.enables = mergeGuideRefs(guide.enables, updates.add_enables, guide.guide);
+    fieldsUpdated.push("enables");
   }
   if (updates.superseded_by) {
     guide.superseded_by = updates.superseded_by;
@@ -801,6 +830,10 @@ export function formatGuideDetail(guide: Guide | null): string {
 
   if (guide.depends_on && guide.depends_on.length > 0) {
     detail += `Depends on: ${guide.depends_on.join(", ")}\n`;
+  }
+
+  if (guide.enables && guide.enables.length > 0) {
+    detail += `Enables: ${guide.enables.join(", ")}\n`;
   }
 
   if (guide.superseded_by) {

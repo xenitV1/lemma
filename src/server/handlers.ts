@@ -144,6 +144,8 @@ interface GuideUpdateArgs {
   description?: string;
   add_anti_patterns?: string[];
   add_pitfalls?: string[];
+  add_depends_on?: string[];
+  add_enables?: string[];
   superseded_by?: string;
   deprecated?: boolean;
 }
@@ -2040,6 +2042,8 @@ export async function handleGuideUpdate(args?: GuideUpdateArgs): Promise<ToolRes
     description: args?.description,
     add_anti_patterns: args?.add_anti_patterns,
     add_pitfalls: args?.add_pitfalls,
+    add_depends_on: args?.add_depends_on,
+    add_enables: args?.add_enables,
     superseded_by: args?.superseded_by,
     deprecated: args?.deprecated,
   };
@@ -2073,6 +2077,12 @@ export async function handleGuideUpdate(args?: GuideUpdateArgs): Promise<ToolRes
   }
   if (args?.add_pitfalls) {
     guide.known_pitfalls = [...(guide.known_pitfalls || []), ...args.add_pitfalls];
+  }
+  if (args?.add_depends_on) {
+    guide.depends_on = guides.mergeGuideRefs(guide.depends_on, args.add_depends_on, guide.guide);
+  }
+  if (args?.add_enables) {
+    guide.enables = guides.mergeGuideRefs(guide.enables, args.add_enables, guide.guide);
   }
   if (args?.superseded_by) {
     guide.superseded_by = args.superseded_by;

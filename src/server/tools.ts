@@ -690,7 +690,7 @@ export const TOOLS: ToolDefinition[] = [
   },
   {
     name: "guide_update",
-    description: "Update an existing guide's basic properties (name, category, description).",
+    description: "Update an existing guide's properties (name, category, description) and its dependency graph — which guides it depends_on and which it enables.",
     inputSchema: {
       additionalProperties: false,
       type: "object",
@@ -720,6 +720,16 @@ export const TOOLS: ToolDefinition[] = [
           type: "array",
           items: { type: "string" },
           description: "Add known pitfalls to this guide. Optional.",
+        },
+        add_depends_on: {
+          type: "array",
+          items: { type: "string" },
+          description: "Guide names this guide depends on (prerequisites). Merged + de-duplicated; self-references ignored. Optional.",
+        },
+        add_enables: {
+          type: "array",
+          items: { type: "string" },
+          description: "Guide names this guide enables (unlocks/leads to). Merged + de-duplicated; self-references ignored. Optional.",
         },
         superseded_by: {
           type: "string",
