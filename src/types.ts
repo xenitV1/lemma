@@ -188,6 +188,13 @@ export interface LemmaConfig {
     timeout_minutes: number;
     idle_timeout_seconds: number;
   };
+  verification: {
+    // B6: opt-in staleness check for code-backed fragments. When on, reading a
+    // fragment with cited code evidence re-checks whether the cited snippet is
+    // still present in the file, and flags it (advisory) if it has drifted.
+    // Off by default — no filesystem reads at recall time unless enabled.
+    stale_check: boolean;
+  };
   eviction: {
     // Capacity-driven "Heat" eviction (roadmap B1). Off by default so today's
     // behavior (unbounded growth) is unchanged; opt-in and config-gated. When

@@ -9,6 +9,7 @@ import * as store from "../db/memory-store.js";
 import { collectLibrarySnapshot, formatLibrarySnapshot } from "../db/library-store.js";
 import * as intel from "../intelligence/index.js";
 import { redactSecrets } from "../memory/privacy.js";
+import * as evidence from "../memory/evidence.js";
 import { loadConfig, estimateTokens } from "../memory/config.js";
 import { buildResult, paginationMeta } from "./format.js";
 import type { FragmentType, Attempt, AttemptOutcome, Session, SuggestionStatus } from "../types.js";
@@ -69,6 +70,7 @@ interface MemoryAddArgs {
   source?: string;
   confirm?: boolean;
   type?: string;
+  evidence?: { file?: string; symbol?: string; snippet?: string };
 }
 
 interface MemoryUpdateArgs {
@@ -966,6 +968,18 @@ export async function handleMemoryRead(args?: MemoryReadArgs): Promise<ToolResul
     // A3: optional bounded-depth graph expansion from this fragment.
     let graph: ReturnType<typeof core.expandGraph> = [];
     let detailText = core.formatMemoryDetail(boosted);
+
+    // B6: opt-in code-evidence staleness check (config-gated; reads the cited
+    // file only when verification.stale_check is on). Advisory — never mutates.
+    let staleFlags: evidence.StaleReport[] = [];
+    if (loadConfig().verification?.stale_check) {
+      staleFlags = evidence.checkStaleByLegacyId(getDb(), detailId).filter(r => r.stale);
+      if (staleFlags.length > 0) {
+        const lines = staleFlags.map(s => `- ${s.file_path}${s.symbol ? ` (${s.symbol})` : ""}: ${s.reason}`);
+        detailText += `\n\n⚠ Code evidence may be STALE — verify before relying on this:\n${lines.join("\n")}\n(Update the fragment or memory_forget invalidate=true if it's outdated.)`;
+      }
+    }
+
     if (args?.expand_graph) {
       graph = core.expandGraph(detailId);
       if (graph.length > 0) {
@@ -1000,6 +1014,7 @@ export async function handleMemoryRead(args?: MemoryReadArgs): Promise<ToolResul
             score: g.score,
           })),
         } : {}),
+        ...(staleFlags.length > 0 ? { stale_evidence: staleFlags } : {}),
         has_more: false,
         next_offset: null,
       },
@@ -1184,6 +1199,25 @@ export async function handleMemoryAdd(args?: MemoryAddArgs): Promise<ToolResult>
   }
 
   core.addFragmentToDb(newFragment);
+
+  // B6: attach optional code evidence (file + optional symbol + snippet). Stored
+  // with a SHA-256; an opt-in recall check later re-verifies the snippet.
+  if (args?.evidence?.file && args.evidence.snippet) {
+    try {
+      const db = getDb();
+      const row = db.prepareCached("SELECT id FROM memories WHERE legacy_id = ?").get(newFragment.id) as { id: number } | undefined;
+      if (row) {
+        evidence.addEvidence(db, row.id, {
+          file: args.evidence.file,
+          symbol: args.evidence.symbol,
+          snippet: args.evidence.snippet,
+        });
+        logger.flow("memory_add", "evidence_attached", { id: newFragment.id, file: args.evidence.file });
+      }
+    } catch (err) {
+      logger.warn("memory_add evidence attach failed", { error: String(err) });
+    }
+  }
 
   if (activeSessionId) {
     logger.data("sessions", "load");

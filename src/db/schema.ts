@@ -353,4 +353,24 @@ CREATE TABLE IF NOT EXISTS fragments_archive (
 CREATE INDEX IF NOT EXISTS idx_fragments_archive_legacy ON fragments_archive(legacy_id);
 `;
 
-export const MIGRATIONS: [number, string][] = [[1, SCHEMA_V1], [2, SCHEMA_V2], [3, SCHEMA_V3], [4, SCHEMA_V4], [5, SCHEMA_V5], [6, SCHEMA_V6]];
+export const SCHEMA_V7 = `
+-- B6: code-evidence for a fragment (community PR #1, embeddings deliberately
+-- excluded). A code-backed fragment may cite a file + optional symbol + the exact
+-- snippet it was derived from, plus a SHA-256 of that snippet. An opt-in recall
+-- check re-reads the file and flags the fragment stale if the snippet has drifted
+-- — never hard-deleted, advisory only. Additive + gated; Windows-safe (text
+-- search, no native parsing).
+CREATE TABLE IF NOT EXISTS memory_evidence (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  memory_id INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+  file_path TEXT NOT NULL,
+  symbol TEXT,
+  snippet TEXT NOT NULL,
+  snippet_hash TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_evidence_memory ON memory_evidence(memory_id);
+`;
+
+export const MIGRATIONS: [number, string][] = [[1, SCHEMA_V1], [2, SCHEMA_V2], [3, SCHEMA_V3], [4, SCHEMA_V4], [5, SCHEMA_V5], [6, SCHEMA_V6], [7, SCHEMA_V7]];

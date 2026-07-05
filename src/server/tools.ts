@@ -4,6 +4,10 @@ interface ToolProperty {
   items?: { type: string };
   enum?: string[];
   default?: unknown;
+  // Nested object schema (e.g. memory_add.evidence).
+  properties?: Record<string, ToolProperty>;
+  required?: string[];
+  additionalProperties?: boolean;
 }
 
 interface ToolInputSchema {
@@ -286,6 +290,17 @@ export const TOOLS: ToolDefinition[] = [
           type: "string",
           enum: ["fact", "pattern", "lesson", "warning", "context"],
           description: "Fragment type. 'fact'=technical info, 'pattern'=repeated solution, 'lesson'=learned from experience, 'warning'=caution/gotcha, 'context'=environment info. Default: 'fact'.",
+        },
+        evidence: {
+          type: "object",
+          additionalProperties: false,
+          description: "Optional code backing for this fragment. Cite the file and the exact snippet it was derived from; an opt-in recall check later flags the fragment if that snippet drifts. Windows-safe, no embeddings.",
+          properties: {
+            file: { type: "string", description: "Path to the cited source file." },
+            symbol: { type: "string", description: "Optional symbol/function/section label the snippet belongs to." },
+            snippet: { type: "string", description: "The exact code snippet the fragment is based on (stored verbatim + SHA-256)." },
+          },
+          required: ["file", "snippet"],
         },
       },
       required: ["fragment"],
