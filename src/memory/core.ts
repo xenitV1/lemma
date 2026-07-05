@@ -336,6 +336,11 @@ export function boostOnAccess(fragment: MemoryFragment, context: string | null =
       access_count: boosted.accessed,
       quality_score: boosted.quality_score,
     });
+    // Mark this fragment as accessed in the current decay window so the next
+    // decay run spares it. Separate from access_count (lifetime) — see SCHEMA_V4.
+    db.prepareCached(
+      `UPDATE memories SET access_window = access_window + 1 WHERE legacy_id = ?`
+    ).run(fragment.id);
   } catch (err) {
     logger.warn("Failed to write-through boost", { id: fragment.id, error: String(err) });
   }
@@ -953,8 +958,10 @@ export function findTopicOverlapsByText(text: string, project: string | null, li
 export function searchMemory(query: string, options?: { project?: string | null; limit?: number; type?: string; minConfidence?: number }): MemoryFragment[] {
   try {
     const db = getDb();
-    const opts: { project?: string; topK?: number; type?: FragmentType; minConfidence?: number } = {};
-    if (options?.project !== undefined && options.project !== null) {
+    const opts: { project?: string | null; topK?: number; type?: FragmentType; minConfidence?: number } = {};
+    // Distinguish "no project arg" (search everywhere) from an explicit null
+    // (global-scope only → project IS NULL). Only an absent arg omits the filter.
+    if (options && "project" in options && options.project !== undefined) {
       opts.project = options.project;
     }
     if (options?.limit !== undefined) {
@@ -976,7 +983,10 @@ export function searchMemory(query: string, options?: { project?: string | null;
 export function filterByProjectFromDb(project: string | null): MemoryFragment[] {
   try {
     const db = getDb();
-    return store.searchMemories(db, "", { project: project || undefined, topK: 1000 });
+    // Pass null THROUGH (not `|| undefined`) so a global-scope request maps to
+    // `project IS NULL`. `|| undefined` dropped the filter entirely, leaking
+    // every project's fragments into what should be global-only.
+    return store.searchMemories(db, "", { project, topK: 1000 });
   } catch (err) {
     logger.warn("filterByProjectFromDb failed", { error: String(err) });
     return [];

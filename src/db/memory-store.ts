@@ -302,8 +302,11 @@ export function searchMemories(
       if (options.project === null) {
         conditions.push("m.project IS NULL");
       } else {
+        // Normalize to the canonical project key (trim + lowercase) so the search
+        // side matches the write side. Without this a search scoped to "Lemma"
+        // misses fragments stored under the normalized "lemma".
         conditions.push("m.project = ?");
-        params.push(options.project);
+        params.push(normalizeProject(options.project));
       }
     }
   }
@@ -469,6 +472,7 @@ export function boostConfidence(
     .prepareCached(
       `UPDATE memories SET confidence = MIN(1.0, confidence + ?),
        access_count = access_count + 1,
+       access_window = access_window + 1,
        last_accessed_at = datetime('now'),
        updated_at = datetime('now')
        WHERE id = ?`,
@@ -527,7 +531,7 @@ export function decayMemories(lemmaDb: LemmaDB): number {
         const retention = Math.pow(0.5, elapsedDays / halfLife);
         const r = lemmaDb.prepareCached(
           `UPDATE memories SET confidence = MAX(0, confidence * ?), updated_at = datetime('now')
-           WHERE access_count = 0 AND confidence > 0 AND type = ?`,
+           WHERE access_window = 0 AND confidence > 0 AND type = ?`,
         ).run(retention, type);
         changed += r.changes;
       }
@@ -536,12 +540,15 @@ export function decayMemories(lemmaDb: LemmaDB): number {
       const result = lemmaDb.prepareCached(
         `UPDATE memories SET confidence = MAX(0, confidence - 0.002),
          updated_at = datetime('now')
-         WHERE access_count = 0 AND confidence > 0`,
+         WHERE access_window = 0 AND confidence > 0`,
       ).run();
       changed = result.changes;
     }
 
-    lemmaDb.prepareCached("UPDATE memories SET access_count = 0").run();
+    // Reset only the decay window, NOT the lifetime access_count. access_count is
+    // what analytics/scoring read as total usage; zeroing it here (the old bug)
+    // made every fragment look "never accessed" after each cycle.
+    lemmaDb.prepareCached("UPDATE memories SET access_window = 0").run();
     markDecayRun(lemmaDb);
     logger.info("Memory decay complete", { decayed: changed, model: decayCfg.model });
     return changed;

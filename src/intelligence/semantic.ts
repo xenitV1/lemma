@@ -63,8 +63,12 @@ function computeDocumentFrequency(vectors: TfidfVector[]): Map<string, number> {
   return df;
 }
 
-function applyIdf(vectors: TfidfVector[], df: Map<string, number>): void {
-  const n = vectors.length;
+// `n` is the size of the document collection the df map was computed over.
+// It must be passed explicitly when weighting a query vector against a corpus,
+// otherwise the query would be scaled as if the collection had a single document
+// (n = 1), producing IDF values on a different — and for common terms negative —
+// scale than the corpus, so term-sharing documents score as dissimilar.
+function applyIdf(vectors: TfidfVector[], df: Map<string, number>, n: number = vectors.length): void {
   for (const vec of vectors) {
     for (const [term, tf] of vec.terms) {
       const idf = Math.log((n + 1) / ((df.get(term) || 0) + 1)) + 1;
@@ -117,9 +121,12 @@ export function findSemanticSimilar(
     norm: 0,
   };
 
-  const n = vectors.length;
-  const df = computeDocumentFrequency([...vectors, queryVec]);
-  applyIdf([queryVec], df);
+  // Weight the query with the SAME IDF scale the corpus vectors were built on:
+  // corpus document frequencies and corpus size N. Passing the 1-element query
+  // array to applyIdf without an explicit n used n=1, flipping common-term weights
+  // negative and putting query and corpus on incomparable scales.
+  const corpusDf = computeDocumentFrequency(vectors);
+  applyIdf([queryVec], corpusDf, vectors.length);
 
   const results: Array<{ memory_id: string; score: number }> = [];
   for (const vec of vectors) {

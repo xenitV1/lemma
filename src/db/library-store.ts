@@ -95,8 +95,11 @@ export function collectFragmentSummaries(db: LemmaDB, projectFilter?: string | n
     ? baseSql + ` WHERE m.project = ? ORDER BY m.confidence DESC`
     : baseSql + ` ORDER BY m.confidence DESC`;
 
+  // Normalize the filter to the canonical (trim + lowercase) project key so it
+  // matches the normalized value stored on write; a raw "Lemma" would miss "lemma".
+  const normalizedFilter = projectFilter ? projectFilter.trim().toLowerCase() : projectFilter;
   const stmt = db.prepareCached(sql);
-  const rows = (projectFilter ? stmt.all(projectFilter) : stmt.all()) as Record<string, any>[];
+  const rows = (normalizedFilter ? stmt.all(normalizedFilter) : stmt.all()) as Record<string, any>[];
 
   return rows.map(row => ({
     id: row.id as string,

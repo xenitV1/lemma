@@ -61,6 +61,29 @@ function topicOverlap(a: Set<string>, b: Set<string>): number {
   return overlap / Math.min(a.size, b.size);
 }
 
+// Single source of truth for the conflict severity model, shared by the
+// incremental (detectConflict) and batch (scanForConflicts) paths so an
+// identical fragment pair always scores identically. Previously the two paths
+// carried divergent constants (skip <0.3 vs <0.4; negation 0.6+..*0.4 vs
+// 0.5+..*0.5), so the same pair could be flagged with different severity — or
+// flagged by one path and dropped by the other.
+const CONFLICT_MIN_OVERLAP = 0.3;   // below this, not the same topic — skip
+const CONFLICT_EMIT_THRESHOLD = 0.4; // below this, too weak to report
+
+function scoreConflict(
+  fragmentA: string,
+  fragmentB: string,
+  overlap: number,
+  negationDiffers: boolean,
+): number {
+  let conflictScore = 0;
+  if (negationDiffers && overlap >= 0.5) {
+    conflictScore = 0.6 + (overlap - 0.5) * 0.4;
+  }
+  const signalScore = detectContradictionSignals(fragmentA, fragmentB);
+  return Math.max(conflictScore, signalScore * overlap);
+}
+
 function detectContradictionSignals(textA: string, textB: string): number {
   let maxScore = 0;
   for (const signal of CONTRADICTION_SIGNALS) {
@@ -86,20 +109,18 @@ export function detectConflict(
     if (existing.id === newFragment.id) continue;
 
     const overlap = topicOverlap(newTopic, extractTopicSignature(existing.fragment));
-    if (overlap < 0.3) continue;
+    if (overlap < CONFLICT_MIN_OVERLAP) continue;
 
     const existingHasNegation = hasNegation(existing.fragment);
 
-    let conflictScore = 0;
+    const conflictScore = scoreConflict(
+      newFragment.fragment,
+      existing.fragment,
+      overlap,
+      newHasNegation !== existingHasNegation,
+    );
 
-    if (newHasNegation !== existingHasNegation && overlap >= 0.5) {
-      conflictScore = 0.6 + (overlap - 0.5) * 0.4;
-    }
-
-    const signalScore = detectContradictionSignals(newFragment.fragment, existing.fragment);
-    conflictScore = Math.max(conflictScore, signalScore * overlap);
-
-    if (conflictScore >= 0.4) {
+    if (conflictScore >= CONFLICT_EMIT_THRESHOLD) {
       conflicts.push({
         memory_a_id: newFragment.id,
         memory_a_title: newFragment.title,
@@ -124,8 +145,10 @@ export function scanForConflicts(allFragments: MemoryFragment[]): ConflictPair[]
   const negationMap = new Map<string, boolean>();
   // Tier-1 gate: an inverted index (term → fragment indices) so we only run the
   // expensive overlap+signal check on pairs that share ≥1 topic term. Pairs
-  // sharing zero terms have overlap 0 and were always skipped, so the output is
-  // identical to the old O(n²) scan — just far fewer comparisons (SSR-Ada; C3).
+  // sharing zero terms have overlap 0 and are skipped anyway, so the candidate
+  // gate changes cost, not results — just far fewer comparisons (SSR-Ada; C3).
+  // Scoring itself now goes through the shared scoreConflict() so this batch path
+  // and the incremental detectConflict() agree on every pair's severity.
   const inverted = new Map<string, number[]>();
 
   for (let i = 0; i < allFragments.length; i++) {
@@ -162,20 +185,14 @@ export function scanForConflicts(allFragments: MemoryFragment[]): ConflictPair[]
     const a = allFragments[i];
     const b = allFragments[j];
     const overlap = topicOverlap(signatures.get(a.id)!, signatures.get(b.id)!);
-    if (overlap < 0.4) continue;
+    if (overlap < CONFLICT_MIN_OVERLAP) continue;
 
     const aNeg = negationMap.get(a.id)!;
     const bNeg = negationMap.get(b.id)!;
 
-    let conflictScore = 0;
-    if (aNeg !== bNeg && overlap >= 0.5) {
-      conflictScore = 0.5 + (overlap - 0.5) * 0.5;
-    }
+    const conflictScore = scoreConflict(a.fragment, b.fragment, overlap, aNeg !== bNeg);
 
-    const signalScore = detectContradictionSignals(a.fragment, b.fragment);
-    conflictScore = Math.max(conflictScore, signalScore * overlap);
-
-    if (conflictScore >= 0.4) {
+    if (conflictScore >= CONFLICT_EMIT_THRESHOLD) {
       conflicts.push({
         memory_a_id: a.id,
         memory_a_title: a.title,

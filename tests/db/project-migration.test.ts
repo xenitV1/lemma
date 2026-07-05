@@ -30,17 +30,17 @@ function projectsIn(table: "memories" | "sessions"): string[] {
 }
 
 describe("SCHEMA_V3 — project key normalization", () => {
-  test("fresh database reaches schema_version 3", () => {
+  test("fresh database reaches schema_version 4", () => {
     const row = db.prepareCached("SELECT MAX(version) AS v FROM schema_version").get() as { v: number };
-    assert.equal(row.v, 3);
+    assert.equal(row.v, 4);
   });
 
-  test("re-running migrations is a no-op (already at v3)", () => {
+  test("re-running migrations is a no-op (already at v4)", () => {
     const before = db.prepareCached("SELECT MAX(version) AS v FROM schema_version").get() as { v: number };
     runMigrations(db);
     const after = db.prepareCached("SELECT MAX(version) AS v FROM schema_version").get() as { v: number };
     assert.equal(after.v, before.v);
-    assert.equal(after.v, 3);
+    assert.equal(after.v, 4);
   });
 
   test("SCHEMA_V3 cleans historical dirty project keys (memories)", () => {

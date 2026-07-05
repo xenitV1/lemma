@@ -276,4 +276,20 @@ UPDATE sessions SET project = lower(project) WHERE project IS NOT NULL;
 UPDATE sessions SET project = NULL WHERE project = 'global';
 `;
 
-export const MIGRATIONS: [number, string][] = [[1, SCHEMA_V1], [2, SCHEMA_V2], [3, SCHEMA_V3]];
+export const SCHEMA_V4 = `
+-- Separate the decay "window" flag from the lifetime access counter.
+-- Historically decay overloaded access_count: it decayed rows with
+-- access_count = 0, then reset access_count = 0 for EVERY row each 24h cycle.
+-- That reset destroyed the lifetime access signal that analytics/scoring rely on
+-- (never_accessed_count, most_accessed, quality usageScore) — so right after any
+-- decay run, all fragments read as "never accessed". Fix: give decay its own
+-- window counter (access_window) and leave access_count as a true lifetime count
+-- that decay never touches. Seed the window from the current access_count so the
+-- first post-upgrade decay still spares fragments touched in the current window.
+-- Additive + idempotent (gated by schema_version); old code ignores the column.
+
+ALTER TABLE memories ADD COLUMN access_window INTEGER DEFAULT 0 NOT NULL;
+UPDATE memories SET access_window = access_count;
+`;
+
+export const MIGRATIONS: [number, string][] = [[1, SCHEMA_V1], [2, SCHEMA_V2], [3, SCHEMA_V3], [4, SCHEMA_V4]];
