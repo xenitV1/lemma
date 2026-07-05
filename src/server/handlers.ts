@@ -237,16 +237,35 @@ export function autoEndSession(vs: any): void {
   if (!session) return;
 
   const toolCount = vs.duration_tool_calls || 0;
-  const techs = vs.technologies || [];
-  const memCreated = vs.memories_created || [];
-  const guidesUsed = vs.guides_used || [];
+  const techs: string[] = vs.technologies || [];
+  const memCreated: string[] = [...new Set<string>(vs.memories_created || [])];
+  const memRead: string[] = [...new Set<string>(vs.memories_accessed || [])];
+  const guidesUsed: string[] = vs.guides_used || [];
   const project = vs.project || null;
 
   const outcome = memCreated.length > 0 || toolCount > 0
     ? "partial"
     : "abandoned";
 
-  sessions.endSession(session, outcome, null, []);
+  // C1 — episodic tier: persist the FULL virtual session into the SQL sessions
+  // table (not just the flat JSON). Populating these fields lets saveSessions
+  // sync the session_memory_links / session_guide_usage / technologies junctions,
+  // which in turn feed project_analytics and C4 self-consistency.
+  session.technology = techs.join(", ");
+  session.guides_used = guidesUsed;
+  session.memories_read = memRead;
+  session.memories_created = memCreated;
+  if (project) session.project = project;
+
+  // N3 crystallization: distill the episode into a one-line digest kept on the
+  // session, so continuity recall can resurface prior episodes as a growing chain.
+  const digestParts: string[] = [`${toolCount} tool call(s)`];
+  if (techs.length > 0) digestParts.push(`tech: ${techs.join("/")}`);
+  if (memCreated.length > 0) digestParts.push(`created ${memCreated.length} memory(s)`);
+  if (guidesUsed.length > 0) digestParts.push(`guides: ${guidesUsed.join("/")}`);
+  const digest = `Episode (${outcome}) — ${digestParts.join(", ")}.`;
+
+  sessions.endSession(session, outcome, null, [digest]);
   sessions.saveSessions(allSessions);
   activeSessionId = null;
 
@@ -255,6 +274,7 @@ export function autoEndSession(vs: any): void {
     tool_calls: toolCount,
     techs: techs.length,
     mem_created: memCreated.length,
+    mem_read: memRead.length,
     guides_used: guidesUsed.length,
     project,
   });
