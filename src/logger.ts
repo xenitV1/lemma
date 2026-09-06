@@ -69,7 +69,7 @@ function write(level: string, message: string, meta?: unknown): void {
   if (_disabled) return;
   try {
     ensureLogDir();
-    const line = redactSecrets(formatMessage(level, message, meta)).redacted;
+    const line = redactSecrets(formatMessage(level, message, redactLogValue(meta))).redacted;
     fs.appendFileSync(getLogFilePath(), line + "\n", "utf-8");
 
     const mirrorToStderr = process.env.LEMMA_LOG_STDERR === "1" || process.env.LEMMA_DEBUG === "1";

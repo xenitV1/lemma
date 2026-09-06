@@ -14,11 +14,13 @@ test("diagnostic logs redact secrets before truncation, including nested argumen
     logger.toolCall("memory_update", { fragment: "x".repeat(70) + secret });
     logger.request("tools/call", { nested: { secret } });
     logger.warn("failed with " + secret);
+    logger.flow("memory", "write", { fragment: 'password="synthetic-flow-password"' });
     logger.request("tools/call", { fragment: 'password="synthetic-password"' });
     const text = fs.readFileSync(path.join(dir, fs.readdirSync(dir)[0]), "utf8");
     assert.ok(!text.includes(secret));
     assert.ok(!text.includes("ghp_"));
     assert.ok(!text.includes("synthetic-password"));
+    assert.ok(!text.includes("synthetic-flow-password"));
     assert.match(text, /REDACTED/);
   } finally {
     disableLogger();
