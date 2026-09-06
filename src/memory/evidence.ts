@@ -60,8 +60,16 @@ export function checkStale(
   memoryId: number,
   readFile: (p: string) => string = (p) => fs.readFileSync(p, "utf8"),
 ): StaleReport[] {
+  return checkEvidenceRows(getEvidence(lemmaDb, memoryId), readFile);
+}
+
+/** Check an already bounded set of citations without re-querying the database. */
+export function checkEvidenceRows(
+  rows: EvidenceRow[],
+  readFile: (p: string) => string = (p) => fs.readFileSync(p, "utf8"),
+): StaleReport[] {
   const reports: StaleReport[] = [];
-  for (const ev of getEvidence(lemmaDb, memoryId)) {
+  for (const ev of rows) {
     let content: string | null = null;
     try {
       content = readFile(ev.file_path);

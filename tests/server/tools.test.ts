@@ -7,6 +7,9 @@ import { TOOLS } from "../../src/server/tools.js";
 // update this list — the tests below lock the contract and prevent silent
 // regressions (redundant prefix, dropped annotation, removed outputSchema).
 const ALLOWED_NAMES = [
+  "backup_create",
+  "backup_preview",
+  "backup_restore",
   "session_start",
   "session_end",
   "session_attempt",
@@ -48,6 +51,7 @@ const READ_ONLY = new Set([
 ]);
 
 const DESTRUCTIVE = new Set([
+  "backup_restore",
   "memory_forget",
   "memory_merge",
   "guide_forget",
@@ -64,7 +68,7 @@ const IDEMPOTENT = new Set([
 ]);
 
 describe("TOOLS registry", () => {
-  test("exposes exactly the 26 short tool names", () => {
+  test("exposes exactly the 29 short tool names", () => {
     const names = TOOLS.map(t => t.name).sort();
     assert.deepEqual(names, [...ALLOWED_NAMES].sort());
   });

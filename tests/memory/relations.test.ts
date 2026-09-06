@@ -4,6 +4,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import * as core from "../../src/memory/core.js";
+import { closeDb } from "../../src/db/database.js";
 import { handleMemoryAdd, handleMemoryRelate, setNotifyChange } from "../../src/server/handlers.js";
 
 const TEST_DIR = path.join(os.tmpdir(), `lemma-test-relations-${Date.now()}`);
@@ -15,7 +16,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  fs.rmSync(TEST_DIR, { recursive: true, force: true });
+  closeDb();
+  fs.rmSync(TEST_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
 });
 
 describe("Memory relations", () => {

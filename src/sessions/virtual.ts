@@ -346,6 +346,18 @@ export function getCurrentVirtualSession(): VirtualSession | null {
   return currentVirtualSession;
 }
 
+/** After restore, old callbacks must not write the prior session into new data. */
+export function discardVirtualSession(): void {
+  if (sessionTimeout) clearTimeout(sessionTimeout);
+  if (idleTimer) clearTimeout(idleTimer);
+  currentVirtualSession = null;
+  sessionTimeout = null;
+  idleTimer = null;
+  idleSince = null;
+  _pendingSessionEndMessage = null;
+  _pendingSessionStartMessage = null;
+}
+
 export function consumeSessionEndMessage(): string | null {
   const msg = _pendingSessionEndMessage;
   _pendingSessionEndMessage = null;

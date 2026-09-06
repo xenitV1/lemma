@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { redactSecrets } from "../memory/privacy.js";
 import { LemmaDB } from "./database.js";
 import { logger } from "../logger.js";
 import { sanitizeFtsQuery } from "./fts.js";
@@ -187,15 +188,15 @@ export function updateMemory(
 
   if (updates.title !== undefined) {
     setClauses.push("title = ?");
-    params.push(updates.title);
+    params.push(redactSecrets(updates.title).redacted);
   }
   if (updates.fragment !== undefined) {
     setClauses.push("fragment = ?");
-    params.push(updates.fragment);
+    params.push(redactSecrets(updates.fragment).redacted);
   }
   if (updates.description !== undefined) {
     setClauses.push("description = ?");
-    params.push(updates.description);
+    params.push(redactSecrets(updates.description).redacted);
   }
   if (updates.confidence !== undefined) {
     setClauses.push("confidence = ?");
@@ -379,6 +380,11 @@ export function getFragmentHistory(lemmaDb: LemmaDB, idOrLegacy: string | number
     .all(id, limit) as FragmentHistoryEntry[];
 }
 
+export interface MemorySearchTrace {
+  method: "fts5_bm25" | "confidence_browse" | "substring_fallback";
+  scores: Map<string, number>;
+}
+
 export function searchMemories(
   lemmaDb: LemmaDB,
   query: string,
@@ -391,6 +397,7 @@ export function searchMemories(
     beforeDate?: string;
     all?: boolean;
     includeInvalidated?: boolean;
+    onTrace?: (trace: MemorySearchTrace) => void;
   },
 ): MemoryFragment[] {
   const topK = options?.topK ?? 20;
@@ -437,12 +444,13 @@ export function searchMemories(
     conditions.length > 0 ? " AND " + conditions.join(" AND ") : "";
 
   const ftsQuery = query ? sanitizeFtsQuery(query) : "";
+  let method: MemorySearchTrace["method"] = ftsQuery ? "fts5_bm25" : "confidence_browse";
 
   let sql: string;
   let sqlParams: any[];
 
   if (ftsQuery) {
-    sql = `SELECT m.*, p.legacy_id as parent_legacy_id
+    sql = `SELECT m.*, p.legacy_id as parent_legacy_id${options?.onTrace ? ", bm25(memory_fts) AS recall_rank" : ""}
            FROM memory_fts fts
            JOIN memories m ON m.id = fts.rowid
            LEFT JOIN memories p ON m.parent_id = p.id
@@ -465,6 +473,7 @@ export function searchMemories(
     rows = lemmaDb.prepareCached(sql).all(...sqlParams) as Record<string, any>[];
   } catch (err) {
     logger.warn("FTS search failed, falling back to LIKE", { error: String(err) });
+    method = "substring_fallback";
     const likePattern = `%${query.trim()}%`;
     const likeConditions = [
       ...conditions,
@@ -486,6 +495,7 @@ export function searchMemories(
     ) as Record<string, any>[];
   }
 
+  options?.onTrace?.({ method, scores: new Map(rows.map(row => [row.legacy_id, method === "fts5_bm25" ? row.recall_rank : row.confidence])) });
   if (rows.length === 0) return [];
 
   const ids = rows.map((r) => r.id as number);

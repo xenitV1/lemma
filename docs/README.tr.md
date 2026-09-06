@@ -69,7 +69,7 @@ Lemma arka planda zeka çalıştırır — manuel tetiklemeye gerek yoktur:
 
 Manuel derin analiz de özel araçlarla kullanılabilir.
 
-## Araçlar (26)
+## Araçlar (29)
 
 Lemma `memory_read`, `memory_add`, `session_start` gibi kısa MCP araç adları sunar. Çoğu istemci araçları sunucu adıyla birlikte gösterir; bu yüzden `mcp_lemma_memory_add` gibi adlar görmeniz normaldir. `mcp_lemma_lemma_memory_add` gibi iki kez tekrarlanan adlar kullanılmaz.
 
@@ -118,6 +118,51 @@ Lemma `memory_read`, `memory_add`, `session_start` gibi kısa MCP araç adları 
 | `proactive_analysis` | Tam bilgi tabanı analizi: eski, yetim, damıtma adayları, kullanım dışı |
 | `project_analytics` | Oturumlar arası proje sağlığı, büyüme oranı, beceri kapsama |
 | `semantic_search` | TF-IDF benzerlik araması |
+
+### Yedekleme ve geri yükleme (3)
+
+| Araç | Açıklama |
+|------|----------|
+| `backup_create` | Tüm veritabanı kayıtlarını tek taşınabilir dosyaya yedekler ve doğrular |
+| `backup_preview` | Yedeği kontrol eder, mevcut kayıtlarla karşılaştırır ve onay için hazırlar |
+| `backup_restore` | Açık onaydan sonra güvenlik yedeği alıp hafızayı geri yükler |
+
+## MCP ile yedekleme ve geri yükleme
+
+Terminal kullanmadan asistanına **“Lemma hafızamı şu klasöre yedekle”** diyebilirsin. Asistan `backup_create` aracını çağırır ve doğrulanmış `.lemma-backup` dosyasının konumunu verir. Klasör belirtmezsen `~/.lemma/backups/` kullanılır. Dosyalar tarih ve benzersiz ad taşır; eski yedeklerin üzerine yazılmaz.
+
+Yeni bilgisayarda uyumlu Lemma MCP sürümünü kurup dosyayı bilgisayara getirmen yeterlidir. Windows, macOS ve Linux aynı yedek biçimini kullanır. **“Şu dosyadan Lemma hafızamı geri yükle”** dediğinde:
+
+1. `backup_preview` dosyayı doğrular, yedekteki ve mevcut hafızadaki kayıt sayılarını gösterir. İşlem tüm projeleri ve genel hafızayı yedekteki duruma döndürür; kayıtları birleştirmez.
+2. Önizleme bağlantı durumunu da gösterir: **“Hazır”**, kontrol edilen başka Lemma bağlantısı olmadığını; **“Engellendi”**, çözülmesi gereken bir bağlantı engeli bulunduğunu belirtir. Engel varsa onay istenmez, onay anahtarı üretilmez ve önceki anahtarlar geçersiz olur. Belirtilen diğer bağlantıları veya görselleştiricileri kapatıp yeniden önizleme yaparsın; **bu konuşmanın MCP bağlantısı açık kalır**. Durum hazır olduğunda asistan senden açık onay ister. Açık konuşma sayısı tek başına engel değildir; veritabanına bağlı Lemma bağlantıları kontrol edilir. Eski Lemma sürümleri ve harici SQLite araçları bu kontrolde görülemez.
+3. `backup_restore` bağlantıları tekrar kontrol eder; önizlemeden sonra yeni bir bağlantı açılmışsa işlem engellenir. Hazır durumu, önizleme anındaki bağlantı kontrolünü gösterir; geri yüklemenin başarı garantisi değildir. Lemma mevcut veritabanının doğrulanmış güvenlik yedeğini oluşturur. Ardından kayıtları tek SQLite işlemi içinde geri yükleyip kontrol eder. İşlem tamamlanmadan hata oluşursa mevcut veriler korunur.
+4. MCP bağlantısını kullanmaya devam edebilirsin. Sonuçta verilen `safety_backup_path`, gerekirse aynı önizleme/onay akışıyla önceki hafızaya dönmeni sağlar.
+
+Önizleme, **mevcut bağlantının işlem numarasını (PID)** ve **engelleyici diğer bağlantıların işlem numaralarını** ayrı gösterir. Her bağlantının ayrıca kendine ait kimliği bulunur; aynı işlemde birden fazla bağlantı varsa bu belirtilir ve mevcut işlem kapatılmaz. Bu kayıtlardan konuşma adı veya kimliği belirlenemiyorsa açıkça “belirlenemiyor” denir. Doğrulanamayan bağlantı kayıtları ve inceleme hataları da ayrı gösterilir ve geri yüklemeyi engeller. İşlem numarası bir kapatma talimatı değildir; diğer bağlantıları kendi uygulaması üzerinden kapatıp yeniden önizleme yapılır.
+
+Hafıza, rehberler, öğrenimler, ilişkiler, arşivlenmiş/geçersiz kılınmış kayıtlar, sürüm geçmişi, kanıtlar, geri bildirimler ve veritabanındaki oturum/deneme/öneri kayıtları kapsanır. Arama indeksleri yeniden oluşturulur. Yedek alındığında açık olan oturumlar geri yüklemede geçmiş kayıt olarak kapatılır; mevcut konuşmanın metni silinmez. Temiz bağlam için yeni konuşma açabilirsin.
+
+Bilgisayara özgü `config.json`, ham oturum ve trafik logları, tanılama logları, kurulu skill/model dosyaları ve MCP istemci ayarları kapsam dışındadır. Kayıtların içinde geçen eski dosya yolları otomatik değiştirilmez.
+
+İlk sürümde veritabanı boyutu en fazla 128 MiB olabilir. Bu yedek biçimindeki bilinen 1–8 şemaları güncel şemaya (8) geri yüklenebilir. Eski şemanın tanımı ve geçiş geçmişi doğrulanır; dönüşüm yalnızca uygulamanın kendi geçişleriyle bellekteki kopyada yapılır. Orijinal dosya değişmez. Önizlemede `schema_upgrade` sürüm aralığı ve notları onaydan önce gösterilir. Şema 1 veya 2'den dönüşümde proje yolları/adları ve genel kapsam normalleştirilir. Bu özellik rastgele eski SQLite/JSONL dosyalarını içe aktarmaz ve gelecekteki sürümler için sınırsız uyumluluk vaat etmez. Bozuk, bilinmeyen veya daha yeni şemalı yedekler reddedilir. Onay 10 dakika geçerlidir, tek kullanımlıktır; dosya ya da hafıza değişirse yeniden önizleme ve onay gerekir. Yeni Lemma bağlantıları işlem kilidine uyar, açık diğer bağlantılar geri yüklemeyi engeller. Eski sürümler ve harici SQLite araçları bu bağlantı kontrolüne katılmadığından onları da kapatmalısın.
+
+**Yedekler şifrelenmez; özel bilgilerini içerir.** Güvenilir bir yerde sakla ve formatlanacak diskin dışında bir kopya bulundur. Bu özellik bulut eşitleme veya tüm kurulum dosyalarının yedeği değildir. `lemma -lib` çıktısı geri yüklenebilir bir yedek değildir. Ayrıntılı kapsam ve güvenlik davranışı için [İngilizce belgeye](../README.md#backup-and-restore-through-mcp) bakabilirsin.
+
+**Eski kurulumlarla uyumluluk:** Lemma 0.15.0 öncesinden kalmış kullanılmayan `memory_vectors` / `vec0` yapısı, yalnızca bilinen tablo tanımları ve sürüm metaverisi eşleşiyorsa, veri tabloları boşsa ve eski yazma sayacı yoksa kabul edilir. Yedek dosyası bu eski yapıyı da saklar. Geri yükleme hedefte zaten bulunan boş yapıyı korur; yeni kurulumda artık kullanılmayan indeksi yeniden oluşturmaz. Hafıza, rehber ve güncel arama verileri normal biçimde geri yüklenir. Veri içeren vektör tabloları veya farklı şemalar reddedilir; mevcut veritabanında otomatik temizlik yapılmaz.
+
+## Bu bilgi neden hatırlandı?
+
+Asistanına “Bu bilgiyi neden hatırladığını açıkla” diyebilir veya `memory_read` / `semantic_search` çağrısına `explain: true` ekleyebilirsin. Varsayılan olarak kapalıdır; normal yanıtlar uzamaz ve yeni bir araç eklenmez.
+
+```json
+{"query":"retry policy","project":"projem","explain":true,"response_format":"json"}
+```
+
+`recall_explanation`, gerçek seçim yöntemini ve puanını, kayıtlı kaynağı/oturumu, kaynak dosyalarını ve kontrol durumunu gösterir. Kimlikle okumada “bu kimlik istendi” der; ilişkiler üzerinden gelen kayıtlarda kök kimliği ve bağlantı derinliğini gösterir. Açıklama **bu çağrıya aittir**; eski bir konuşmanın veya otomatik bağlam eklemesinin nedenini sonradan tahmin etmez.
+
+Güven puanı doğruluk kanıtı, son erişim tarihi de son doğrulama tarihi değildir. Kaynak dosyaları yalnızca `verification.stale_check` açıkken kontrol edilir; kayıt başına en fazla beş kaynak incelenir ve sınır belirtilir. Kaynak yoksa veya kontrol kapalıysa bunu açıkça söyler. Kod parçasının hâlâ bulunması, bilginin doğruluğunun kanıtlandığı anlamına gelmez. Açıklama, bu okumanın erişim/güven artışından önceki durumu kullanır; metin ve JSON biçimlerini destekler.
+
+Açıklama istemek kayıtları otomatik düzeltmez. İnceledikten sonra içeriği `memory_update` ile düzeltebilir, eski bilgiyi geçmişini koruyarak `memory_forget` + `invalidate: true` ile gizleyebilir veya `memory_relate` ile yeni bilgiye/çelişkiye bağlayabilirsin.
 
 ## Yapılandırma
 

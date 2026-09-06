@@ -186,8 +186,8 @@ export function semanticSearch(
 ): Array<{ memory_id: string; score: number; title: string; fragment: string }> {
   const rows = db.prepareCached(
     options.project
-      ? `SELECT legacy_id, title, fragment FROM memories WHERE lower(project) = ? OR project IS NULL`
-      : `SELECT legacy_id, title, fragment FROM memories`
+      ? `SELECT legacy_id, title, fragment FROM memories WHERE invalidated_at IS NULL AND (lower(project) = ? OR project IS NULL)`
+      : `SELECT legacy_id, title, fragment FROM memories WHERE invalidated_at IS NULL`
   ).all(...(options.project ? [options.project.toLowerCase()] : [])) as {
     legacy_id: string; title: string; fragment: string;
   }[];

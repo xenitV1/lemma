@@ -7,6 +7,8 @@ import os from "os";
 import * as core from "../../src/memory/index.js";
 import * as guides from "../../src/guides/index.js";
 import * as handlers from "../../src/server/handlers.js";
+import { updateMemory } from "../../src/db/memory-store.js";
+import { getDb } from "../../src/db/database.js";
 import type { MemoryFragment } from "../../src/types.js";
 
 let TMPDIR: string;
@@ -90,4 +92,30 @@ describe("handleMemoryUpdate — type validation", () => {
     assert.equal(result.isError, true);
     assert.ok(result.content[0].text.includes("not found"));
   });
+});
+
+
+test("updates redact secrets in content and title before persistence", async () => {
+  const f = core.createFragment("safe content", "ai", "Safe title", null);
+  core.saveMemory([f]);
+  const secret = "sk-" + "A".repeat(32);
+  const result = await handlers.handleMemoryUpdate({ id: f.id, fragment: secret, title: secret });
+  assert.ok(!result.isError);
+  const saved = core.getFragmentById(f.id)!;
+  assert.ok(!saved.fragment.includes(secret));
+  assert.ok(!saved.title.includes(secret));
+  assert.match(saved.fragment, /REDACTED/);
+});
+
+
+test("shared update path used by visualizer redacts all descriptive fields", () => {
+  const f = core.createFragment("safe content", "ai", "Safe title", null);
+  core.saveMemory([f]);
+  const secret = "ghp_" + "B".repeat(36);
+  assert.ok(updateMemory(getDb(), f.id, { title: secret, fragment: secret, description: secret }));
+  const saved = core.getFragmentById(f.id)!;
+  for (const value of [saved.title, saved.fragment, saved.description]) {
+    assert.ok(!value.includes(secret));
+    assert.match(value, /REDACTED/);
+  }
 });
