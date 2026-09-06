@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { redactSecrets } from "../memory/privacy.js";
 import { LemmaDB } from "./database.js";
 import { logger } from "../logger.js";
 import { sanitizeFtsQuery } from "./fts.js";
@@ -187,15 +188,15 @@ export function updateMemory(
 
   if (updates.title !== undefined) {
     setClauses.push("title = ?");
-    params.push(updates.title);
+    params.push(redactSecrets(updates.title).redacted);
   }
   if (updates.fragment !== undefined) {
     setClauses.push("fragment = ?");
-    params.push(updates.fragment);
+    params.push(redactSecrets(updates.fragment).redacted);
   }
   if (updates.description !== undefined) {
     setClauses.push("description = ?");
-    params.push(updates.description);
+    params.push(redactSecrets(updates.description).redacted);
   }
   if (updates.confidence !== undefined) {
     setClauses.push("confidence = ?");

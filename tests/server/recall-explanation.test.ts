@@ -7,7 +7,7 @@ import * as core from "../../src/memory/core.js";
 import { getDb, closeDb } from "../../src/db/database.js";
 import { setConfigDir, resetConfig } from "../../src/memory/config.js";
 import { addEvidence } from "../../src/memory/evidence.js";
-import { handleMemoryRead, handleSemanticSearch, setNotifyChange } from "../../src/server/handlers.js";
+import { handleMemoryRead, handleSemanticSearch, handleMemoryForget, setNotifyChange } from "../../src/server/handlers.js";
 import { TOOLS } from "../../src/server/tools.js";
 import type { RecallExplanation } from "../../src/memory/recall-explanation.js";
 
@@ -233,4 +233,19 @@ test('empty searches return empty explanations and do not expose unrelated metad
   const semantic = await handleSemanticSearch({ query: 'unfindabletoken', project: 'nonexistent', explain: true });
   assert.deepEqual(explanation(semantic).items, []);
   assert.doesNotMatch(semantic.content[0].text, /m-other|private project secret/);
+});
+
+
+test('invalidated memories stay hidden in semantic recall and explanations', async () => {
+  await handleMemoryForget({ id: 'm-local', invalidate: true });
+  await handleMemoryForget({ id: 'm-global', invalidate: true });
+  for (const hybrid of [false, true]) {
+    for (const project of ['project-a', undefined]) {
+      const result = await handleSemanticSearch({ query: 'retry timeout', project, hybrid, explain: true });
+      assert.ok(!result.isError);
+      const data = result.structuredContent as any;
+      assert.ok(data.results.every((r: any) => !['m-local', 'm-global'].includes(r.id)));
+      assert.ok(data.recall_explanation.items.every((r: any) => !['m-local', 'm-global'].includes(r.id)));
+    }
+  }
 });

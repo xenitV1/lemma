@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import Database from "better-sqlite3";
+import { spawnSync } from "node:child_process";
 import { getDb, closeDb, setDataDir, LemmaDB } from "../../src/db/database.js";
 import { createBackup, previewRestore, restoreBackup, RESTORE_PREVIEW_TTL_MS } from "../../src/db/backup.js";
 
@@ -252,4 +253,17 @@ describe("portable database backups", () => {
     });
     assert.equal(restoreBackup(previewRestore(backup.path).confirmation_token, true).restored, true);
   });
+});
+
+
+test('FIFO backup paths are rejected without blocking the process', { skip: process.platform === 'win32' }, () => {
+  const fifo = path.join(dir, 'backup-pipe');
+  assert.equal(spawnSync('mkfifo', [fifo]).status, 0);
+  const modulePath = new URL('../../src/db/backup.ts', import.meta.url).href;
+  const script = `import { previewRestore } from ${JSON.stringify(modulePath)};
+    try { previewRestore(${JSON.stringify(fifo)}); process.exit(2); }
+    catch (e) { if (!e.message.includes('Not a regular backup file')) throw e; }`;
+  const child = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', script], { timeout: 10000 });
+  assert.equal(child.error, undefined);
+  assert.equal(child.status, 0, child.stderr?.toString());
 });

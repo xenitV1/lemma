@@ -23,6 +23,7 @@ import { logger, initLogger } from "../logger.js";
 import * as traffic from "./traffic-log.js";
 import * as agentsMd from "./agents-md.js";
 import { VERSION } from "../version.js";
+import { redactSecrets } from "../memory/privacy.js";
 import { BACKUP_TOOL_NAMES } from "./backup-handlers.js";
 import { serializeToolCall } from "./tool-queue.js";
 
@@ -149,7 +150,8 @@ instance.setRequestHandler(CallToolRequestSchema, ((request: any) => serializeTo
   const argsSummary: Record<string, unknown> = {};
   const rawArgs = (request.params as any).arguments;
   if (rawArgs) {
-    for (const [k, v] of Object.entries(rawArgs)) {
+    for (const [k, rawValue] of Object.entries(rawArgs)) {
+      const v = typeof rawValue === "string" ? redactSecrets(rawValue).redacted : rawValue;
       if (typeof v === "string" && (v as string).length > 80) {
         argsSummary[k] = (v as string).substring(0, 80) + "...";
       } else {

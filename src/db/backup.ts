@@ -173,7 +173,7 @@ function openSnapshot(bytes: Buffer, version = SCHEMA_VERSION): Database.Databas
 }
 
 function loadBackup(file: string): LoadedBackup {
-  const fd = fs.openSync(file, "r");
+  const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
   let bytes: Buffer;
   try {
     const info = fs.fstatSync(fd);

@@ -1,4 +1,5 @@
 import os from "os";
+import { redactSecrets } from "./memory/privacy.js";
 import path from "path";
 import fs from "fs";
 
@@ -68,7 +69,7 @@ function write(level: string, message: string, meta?: unknown): void {
   if (_disabled) return;
   try {
     ensureLogDir();
-    const line = formatMessage(level, message, meta);
+    const line = redactSecrets(formatMessage(level, message, meta)).redacted;
     fs.appendFileSync(getLogFilePath(), line + "\n", "utf-8");
 
     const mirrorToStderr = process.env.LEMMA_LOG_STDERR === "1" || process.env.LEMMA_DEBUG === "1";
@@ -76,6 +77,16 @@ function write(level: string, message: string, meta?: unknown): void {
       console.error(`[Lemma] ${line}`);
     }
   } catch {}
+}
+
+// Preserve structure while redacting whole values before summaries truncate them.
+function redactLogValue(value: unknown): unknown {
+  if (typeof value === "string") return redactSecrets(value).redacted;
+  if (Array.isArray(value)) return value.map(redactLogValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redactLogValue(item)]));
+  }
+  return value;
 }
 
 function truncateStrings(obj: Record<string, unknown>, maxLen: number): Record<string, unknown> {
@@ -111,7 +122,7 @@ export const logger = {
     const duration = durationMs !== undefined ? ` (${durationMs}ms)` : "";
     const argSummary: Record<string, unknown> = {};
     if (args) {
-      for (const [k, v] of Object.entries(args)) {
+      for (const [k, v] of Object.entries(redactLogValue(args) as Record<string, unknown>)) {
         if (typeof v === "string" && v.length > 80) {
           argSummary[k] = v.substring(0, 80) + "...";
         } else {
@@ -130,7 +141,7 @@ export const logger = {
     let filtered: Record<string, unknown> | undefined;
     if (params) {
       const cleaned: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(params)) {
+      for (const [k, v] of Object.entries(redactLogValue(params) as Record<string, unknown>)) {
         if (k !== "_meta") {
           cleaned[k] = v;
         }
