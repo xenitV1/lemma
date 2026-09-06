@@ -77,7 +77,7 @@ Lemma runs intelligence in the background — no manual triggering needed:
 
 Manual deep analysis is also available via dedicated tools.
 
-## Tools (26)
+## Tools (29)
 
 Lemma exposes short MCP tool names such as `memory_read`, `memory_add`, and `session_start`. Most clients display tools with the server namespace prepended, so you may see names like `mcp_lemma_memory_add`; that is expected. Redundant doubled names like `mcp_lemma_lemma_memory_add` are not used.
 
@@ -126,6 +126,55 @@ Lemma exposes short MCP tool names such as `memory_read`, `memory_add`, and `ses
 | `proactive_analysis` | Full knowledge base analysis: stale, orphan, distill, deprecated |
 | `project_analytics` | Cross-session project health, growth rate, skill coverage |
 | `semantic_search` | TF-IDF similarity search across memories |
+
+### Backup and restore (3)
+
+| Tool | Purpose |
+|------|---------|
+| `backup_create` | Create and verify one portable backup of all database records |
+| `backup_preview` | Validate a backup, compare record counts, and prepare a confirmation token |
+| `backup_restore` | Replace memory after explicit confirmation, with a mandatory safety backup |
+
+## Backup and restore through MCP
+
+No terminal command is needed. Ask your assistant **"Back up my Lemma memory to this folder"** or **"Restore my Lemma memory from this backup file"**. The assistant uses the three tools above.
+
+1. **Back up:** `backup_create` accepts an optional absolute `directory` (also supports `~/...`). It returns the path of a verified `.lemma-backup` file. By default files go to `~/.lemma/backups/`, with unique timestamped names; existing backups are never overwritten.
+2. **Move:** copy that file to your external drive or chosen storage. On a new computer, install a compatible Lemma MCP release and make the file available locally. The format is independent of Windows, macOS and Linux; it contains no destination directory paths.
+3. **Preview:** the assistant calls `backup_preview` with the file's absolute `path`. It shows backup/current record counts and explains that restore **replaces all projects and global memory**, rather than merging them. It also reports connection readiness: `ready` means no other cooperating connections were detected; `blocked` explains the connection blocker. A blocked preview returns no confirmation token, invalidates earlier tokens, and does not ask for approval. Close the other Lemma connections or visualizers as indicated, keep the assistant's current MCP connection open, and preview again. Once ready, explicitly approve that preview. Open conversation tabs alone do not determine readiness; registered database connections do. This check cannot detect older Lemma versions or external SQLite tools.
+4. **Restore:** the assistant passes the preview's `confirmation_token` and `confirm: true` to `backup_restore`. Lemma first creates and verifies a `before-restore-*.lemma-backup` of the current database, then restores and checks the records in one SQLite transaction. On failure before commit the old database remains intact. The returned `safety_backup_path` can be used in the same preview/restore flow to undo a restore.
+
+The current MCP connection stays usable. Its old in-memory session is discarded so it cannot overwrite restored history. Sessions that were active when the backup was taken become abandoned history. Existing conversation text is not erased; start a new conversation when you need a fresh context.
+
+The preview identifies the serving connection in `readiness.current_connection` and lists every detected live peer in `readiness.blocking_connections`, with process IDs and distinct connection IDs. `same_process` flags another connection inside the current process: do not terminate that process. Conversation names and IDs cannot be inferred from these registrations (`conversation_mapping: "unavailable"`). Unverifiable registrations and inspection failures remain blockers and are reported separately. These are diagnostic details, not instructions to terminate processes; close other connections through their application and preview again.
+
+**Included:** all persisted database records, including global/project memories, invalidated fragments, archives, guides and learnings, relationships, evidence, feedback, fragment versions, session history, attempts, suggestions and search cache. Search indexes are rebuilt during restore. Paths quoted *inside* memory/evidence remain unchanged; project folder names and evidence paths may need attention after moving computers.
+
+**Excluded:** `config.json`, raw session/traffic logs, diagnostic logs, installed skills/models, and the MCP client's own configuration. These are machine-specific settings or auxiliary files and are left unchanged on restore. This is a database recovery feature, not a full installation backup or cloud synchronization service. `lemma -lib` is a readable report, not a restorable backup.
+
+**Limits and safeguards:**
+
+Upgraded installations may retain the unused `memory_vectors` / `vec0` scaffold removed in Lemma 0.15.0. Backups accept only its known table definitions, version metadata and empty payload tables with no prior write counters. The original snapshot retains these legacy structures. Restore preserves them if already present on the target, but does not recreate the retired index on a fresh installation. Memories, guides and current search data are restored normally. Nonempty vectors, altered scaffolding and other unknown schema changes are rejected; the live database is never cleaned up automatically.
+
+- Backups are unencrypted and contain private knowledge. Keep them in trusted storage. A backup on the disk being formatted will also be lost; keep a copy elsewhere.
+- This initial format supports databases up to 128 MiB. Backups in this format with known database schemas 1–8 can be restored to the current schema (8). Older schemas are matched against their exact known definitions and complete migration history, then upgraded and verified on an in-memory copy using only bundled migrations. The original file is unchanged. Preview reports `schema_upgrade` with the version range and notes; show these before requesting confirmation. Upgrades from schema 1 or 2 normalize project paths/names and global scope, just as the corresponding application migration does. Unknown/newer formats or schemas, changed definitions, failed checksums, broken relationships and invalid SQLite/search indexes are rejected before replacement. This does not import arbitrary old SQLite or JSONL files and does not guarantee compatibility with future releases.
+- Confirmation tokens expire after 10 minutes, are single-use, and are bound to both the exact file and current database state. If memory changes while you are deciding, or the MCP connection restarts, preview and confirm again.
+- SQLite snapshots include committed WAL data while Lemma is running. Restore holds the SQLite writer lock; other cooperating Lemma connections block restore and newly opening clients wait for that lock. Older Lemma versions and external SQLite programs do not register as clients, so close them before confirming. SQLite still performs the replacement atomically; it never swaps a database file underneath an open connection.
+- A checksum detects damaged data; it is not a signature proving who created the backup. Import files only from a trusted source.
+
+## Why was a memory recalled?
+
+Ask your assistant to explain a recall, or pass `explain: true` to `memory_read` or `semantic_search`. It is off by default and adds no new tool. For example:
+
+```json
+{"query":"retry policy","project":"my-project","explain":true,"response_format":"json"}
+```
+
+The optional `recall_explanation` shows the actual selection method and score, recorded source/session, citations, and evidence-check status. Keyword search reports BM25; browsing reports confidence ordering; semantic search reports TF-IDF; hybrid search exposes its rank-fusion components and distinguishes the score from diversity ordering. Direct ID reads say that the ID was requested, and graph expansion reports its root/depth. Ranks refer to the current filtered search window, subject to existing candidate limits.
+
+This explains **the current call**, not why an earlier conversation or automatic context injection selected a memory. Metadata is captured before this read boosts access/confidence. Scores and source labels do not establish correctness, and last access is not last verification. Citation checks run only when `verification.stale_check` is enabled, check at most five citations per record, and report truncation. A present snippet is not proof that the claim is true; without evidence or with verification disabled the result says so. Both readable text and JSON are supported.
+
+No correction is applied by asking for an explanation. After reviewing it, use `memory_update` to correct content, `memory_forget` with `invalidate: true` to hide outdated knowledge while preserving history, or `memory_relate` to record a replacement/contradiction.
 
 ## Configuration
 

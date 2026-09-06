@@ -6,18 +6,22 @@ import path from "path";
 
 // TRAFFIC_DIR is computed at traffic-log module top-level via os.homedir().
 // Once the module is imported, that path is FIXED for the process. So we must
-// set HOME BEFORE importing traffic-log. We do it synchronously at the top of
+// set HOME and USERPROFILE BEFORE importing traffic-log. We do it synchronously at the top of
 // this file, then use a top-level `await import` so the module evaluates with
 // HOME already pointing at a temp dir.
 const TMPDIR = fs.mkdtempSync(path.join(os.tmpdir(), "lemma-traffic-"));
 const SAVED_HOME = process.env.HOME;
+const SAVED_USERPROFILE = process.env.USERPROFILE;
 process.env.HOME = TMPDIR;
+process.env.USERPROFILE = TMPDIR;
 
 const { logIncoming } = await import("../../src/server/traffic-log.js");
 
 after(() => {
   if (SAVED_HOME === undefined) delete process.env.HOME;
   else process.env.HOME = SAVED_HOME;
+  if (SAVED_USERPROFILE === undefined) delete process.env.USERPROFILE;
+  else process.env.USERPROFILE = SAVED_USERPROFILE;
   fs.rmSync(TMPDIR, { recursive: true, force: true });
 });
 

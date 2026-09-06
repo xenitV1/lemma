@@ -7,11 +7,15 @@ function makeFragment(overrides: { created?: string; confidence?: number; fragme
   return { ...frag, ...overrides };
 }
 
+function daysAgo(days: number): string {
+  return new Date(Date.now() - days * 86_400_000).toISOString();
+}
+
 describe("Injection ranking (confidence x recency)", () => {
   it("prioritizes recent high-confidence over old high-confidence", async () => {
     const fragments = [
-      makeFragment({ confidence: 0.95, created: "2025-10-01", fragment: "Old git workflow knowledge" }),
-      makeFragment({ confidence: 0.85, created: "2026-04-15", fragment: "Recent React patterns" }),
+      makeFragment({ confidence: 0.95, created: daysAgo(199), fragment: "Old git workflow knowledge" }),
+      makeFragment({ confidence: 0.85, created: daysAgo(3), fragment: "Recent React patterns" }),
     ];
 
     const results = await searchAndSortFragments(fragments, null, 10);
@@ -21,8 +25,8 @@ describe("Injection ranking (confidence x recency)", () => {
 
   it("still surfaces very high confidence even if older", async () => {
     const fragments = [
-      makeFragment({ confidence: 0.35, created: "2026-04-18", fragment: "Low confidence recent" }),
-      makeFragment({ confidence: 0.95, created: "2026-03-01", fragment: "High confidence semi-recent" }),
+      makeFragment({ confidence: 0.35, created: daysAgo(0), fragment: "Low confidence recent" }),
+      makeFragment({ confidence: 0.95, created: daysAgo(48), fragment: "High confidence semi-recent" }),
     ];
 
     const results = await searchAndSortFragments(fragments, null, 10);
@@ -32,9 +36,9 @@ describe("Injection ranking (confidence x recency)", () => {
 
   it("ranks by query relevance first, then by injection score", async () => {
     const fragments = [
-      makeFragment({ confidence: 0.9, created: "2026-01-01", fragment: "Git rebase workflow tutorial" }),
-      makeFragment({ confidence: 0.7, created: "2026-04-18", fragment: "React hooks state management" }),
-      makeFragment({ confidence: 0.8, created: "2026-04-17", fragment: "React component lifecycle" }),
+      makeFragment({ confidence: 0.9, created: daysAgo(107), fragment: "Git rebase workflow tutorial" }),
+      makeFragment({ confidence: 0.7, created: daysAgo(0), fragment: "React hooks state management" }),
+      makeFragment({ confidence: 0.8, created: daysAgo(1), fragment: "React component lifecycle" }),
     ];
 
     const results = await searchAndSortFragments(fragments, "React hooks", 10);
@@ -44,9 +48,9 @@ describe("Injection ranking (confidence x recency)", () => {
 
   it("returns all fragments when no query", async () => {
     const fragments = [
-      makeFragment({ confidence: 0.5, created: "2026-04-18", fragment: "Fragment A" }),
-      makeFragment({ confidence: 0.8, created: "2026-01-01", fragment: "Fragment B" }),
-      makeFragment({ confidence: 0.3, created: "2026-04-17", fragment: "Fragment C" }),
+      makeFragment({ confidence: 0.5, created: daysAgo(0), fragment: "Fragment A" }),
+      makeFragment({ confidence: 0.8, created: daysAgo(107), fragment: "Fragment B" }),
+      makeFragment({ confidence: 0.3, created: daysAgo(1), fragment: "Fragment C" }),
     ];
 
     const results = await searchAndSortFragments(fragments, null, 10);

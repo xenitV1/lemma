@@ -66,7 +66,7 @@ const call = (name, args) => client.callTool({ name, arguments: args });
 try {
   await client.connect(transport);
   const { tools } = await client.listTools();
-  check("26 tools returned", tools.length === 26, `got ${tools.length}`);
+  check("29 tools returned", tools.length === 29, `got ${tools.length}`);
 
   // Confirm the new optional params are advertised on the real tool schemas.
   const memRead = tools.find((t) => t.name === "memory_read");

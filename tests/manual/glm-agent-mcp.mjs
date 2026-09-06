@@ -106,7 +106,7 @@ async function runAgent(systemPrompt, userPrompt, tools) {
 try {
   await client.connect(transport);
   const { tools: mcpTools } = await client.listTools();
-  check("real Lemma server exposes 26 tools", mcpTools.length === 26, `got ${mcpTools.length}`);
+  check("real Lemma server exposes 29 tools", mcpTools.length === 29, `got ${mcpTools.length}`);
 
   // MCP tool schemas → OpenAI function tools. Lemma injects memory into some
   // descriptions; truncate so the tool list stays focused for the model.

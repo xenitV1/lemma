@@ -23,6 +23,8 @@ import { logger, initLogger } from "../logger.js";
 import * as traffic from "./traffic-log.js";
 import * as agentsMd from "./agents-md.js";
 import { VERSION } from "../version.js";
+import { BACKUP_TOOL_NAMES } from "./backup-handlers.js";
+import { serializeToolCall } from "./tool-queue.js";
 
 export let detectedProject: string | null = null;
 let server: Server | null = null;
@@ -139,7 +141,7 @@ instance.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   throw new Error(`Unknown resource: ${uri}`);
 });
 
-instance.setRequestHandler(CallToolRequestSchema, (async (request: any) => {
+instance.setRequestHandler(CallToolRequestSchema, ((request: any) => serializeToolCall(async () => {
   const toolName = (request.params as any).name as string;
   const start = Date.now();
   traffic.logIncoming({ method: "tools/call", params: request.params ?? {}, id: (request as any).id ?? null });
@@ -166,6 +168,9 @@ instance.setRequestHandler(CallToolRequestSchema, (async (request: any) => {
       logger.warn(`Tool ${toolName} returned error: ${text}`);
     }
     logger.response("tools/call", !!result.isError, duration, { tool: toolName });
+    // Maintenance calls must neither change the previewed state nor auto-start
+    // sessions or append unrelated "save memory" reminders after a restore.
+    if (BACKUP_TOOL_NAMES.has(toolName)) return result;
     if (toolName !== "session_end") {
       try {
         virtualSession.recordToolCall(
@@ -180,6 +185,12 @@ instance.setRequestHandler(CallToolRequestSchema, (async (request: any) => {
     }
 
     logger.debug("tool response", { tool: toolName, isError: !!result.isError, hasContent: !!result.content?.[0]?.text });
+    const jsonResponse = request.params.arguments?.response_format === "json" && !!result.structuredContent && !result.isError;
+    const appendNotice = (text: string) => {
+      // Keep the first JSON block parseable; lifecycle notices are separate MCP text blocks.
+      if (jsonResponse) result.content.push({ type: "text", text });
+      else result.content[0].text += text;
+    };
 
     if (
       !result.isError &&
@@ -190,7 +201,7 @@ instance.setRequestHandler(CallToolRequestSchema, (async (request: any) => {
     ) {
       const reminder = virtualSession.getReminderText();
       if (reminder && result.content?.[0]?.text) {
-        result.content[0].text += reminder;
+        appendNotice(reminder);
         logger.debug("Reminder appended", { tool: toolName });
       }
     }
@@ -198,7 +209,7 @@ instance.setRequestHandler(CallToolRequestSchema, (async (request: any) => {
     const sessionEndMsg = virtualSession.consumeSessionEndMessage();
     logger.debug("sessionEndMsg consumed", { hasMessage: !!sessionEndMsg });
     if (sessionEndMsg && result.content?.[0]?.text) {
-      result.content[0].text += sessionEndMsg;
+      appendNotice(sessionEndMsg);
       logger.debug("Session end message appended", { tool: toolName });
     } else if (sessionEndMsg) {
       logger.debug("Session end message set but no text content", { tool: toolName });
@@ -207,7 +218,7 @@ instance.setRequestHandler(CallToolRequestSchema, (async (request: any) => {
     const sessionStartMsg = virtualSession.consumeSessionStartMessage();
     logger.debug("sessionStartMsg consumed", { hasMessage: !!sessionStartMsg });
     if (sessionStartMsg && result.content?.[0]?.text) {
-      result.content[0].text += sessionStartMsg;
+      appendNotice(sessionStartMsg);
       logger.debug("Session start message appended", { tool: toolName });
     } else if (sessionStartMsg) {
       logger.debug("Session start message set but no text content", { tool: toolName });
@@ -220,7 +231,7 @@ instance.setRequestHandler(CallToolRequestSchema, (async (request: any) => {
     logger.response("tools/call", true, duration, { tool: toolName });
     throw error;
   }
-}) as any);
+})) as any);
 
   return instance;
 }

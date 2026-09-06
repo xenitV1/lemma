@@ -1009,10 +1009,11 @@ export function findTopicOverlapsByText(text: string, project: string | null, li
   }
 }
 
-export function searchMemory(query: string, options?: { project?: string | null; limit?: number; type?: string; minConfidence?: number }): MemoryFragment[] {
+export function searchMemory(query: string, options?: { project?: string | null; limit?: number; type?: string; minConfidence?: number; onTrace?: (trace: store.MemorySearchTrace) => void }): MemoryFragment[] {
   try {
     const db = getDb();
-    const opts: { project?: string | null; topK?: number; type?: FragmentType; minConfidence?: number } = {};
+    const opts: { project?: string | null; topK?: number; type?: FragmentType; minConfidence?: number; onTrace?: (trace: store.MemorySearchTrace) => void } = {};
+    if (options?.onTrace) opts.onTrace = options.onTrace;
     // Distinguish "no project arg" (search everywhere) from an explicit null
     // (global-scope only → project IS NULL). Only an absent arg omits the filter.
     if (options && "project" in options && options.project !== undefined) {

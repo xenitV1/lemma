@@ -4,12 +4,14 @@ import * as sessions from "../sessions/index.js";
 import * as virtualSession from "../sessions/virtual.js";
 import { logger } from "../logger.js";
 import { getDb } from "../db/database.js";
+import { handleBackupTool } from "./backup-handlers.js";
 import * as store from "../db/memory-store.js";
 
 import { collectLibrarySnapshot, formatLibrarySnapshot } from "../db/library-store.js";
 import * as intel from "../intelligence/index.js";
 import { redactSecrets } from "../memory/privacy.js";
 import * as evidence from "../memory/evidence.js";
+import { explainRecall, formatRecallExplanation, type RecallExplanation, type RecallSelection } from "../memory/recall-explanation.js";
 import { loadConfig, estimateTokens } from "../memory/config.js";
 import { buildResult, paginationMeta } from "./format.js";
 import type { FragmentType, Attempt, AttemptOutcome, Session, SuggestionStatus } from "../types.js";
@@ -60,6 +62,7 @@ interface MemoryReadArgs {
   offset?: number;
   response_format?: "markdown" | "json";
   expand_graph?: boolean;
+  explain?: boolean;
 }
 
 interface MemoryAddArgs {
@@ -928,6 +931,8 @@ export async function handleMemoryRead(args?: MemoryReadArgs): Promise<ToolResul
   const detailId = args?.id || null;
   const context = args?.context || null;
   const showAll = args?.all === true;
+  const explain = args?.explain === true;
+  const scope = { mode: showAll ? "all_projects" as const : "project_and_global" as const, project: showAll ? null : currentProject?.trim().toLowerCase() || null };
 
   logger.flow("memory_read", "start", { project: currentProject, query, id: detailId, ids: args?.ids?.length, all: showAll, context });
 
@@ -937,9 +942,15 @@ export async function handleMemoryRead(args?: MemoryReadArgs): Promise<ToolResul
     const results: string[] = [];
     const readIds: string[] = [];
     const foundFragments: any[] = [];
+    const explainedItems: RecallExplanation["items"] = [];
+    let recallExplanation: RecallExplanation | undefined;
     for (const did of detailIds) {
       const fragment = core.getFragmentById(did);
       if (fragment) {
+        if (explain) {
+          recallExplanation = explainRecall(getDb(), [{ id: fragment.id, method: "explicit_id", rank: null }], { mode: "explicit_ids", project: null }, !!loadConfig().verification?.stale_check);
+          explainedItems.push(...recallExplanation.items);
+        }
         const boosted = core.boostOnAccess(fragment, context);
         results.push(core.formatMemoryDetail(boosted));
         readIds.push(did);
@@ -952,10 +963,15 @@ export async function handleMemoryRead(args?: MemoryReadArgs): Promise<ToolResul
     trackReadIntoSession(readIds);
     notifyMemoryChange();
     logger.flow("memory_read", "complete_batch", { ids_requested: detailIds.length });
-    return {
-      content: [{ type: "text", text: results.join("\n\n") }],
-      structuredContent: {
+    if (explain) {
+      recallExplanation ??= explainRecall(getDb(), [], { mode: "explicit_ids", project: null }, false);
+      recallExplanation.items = explainedItems;
+    }
+    return buildResult({
+      text: results.join("\n\n") + (recallExplanation ? formatRecallExplanation(recallExplanation) : ""),
+      data: {
         count: readIds.length,
+        ...(recallExplanation ? { recall_explanation: recallExplanation } : {}),
         fragments: foundFragments.map((f: any) => ({
           id: f.id,
           title: f.title,
@@ -969,7 +985,8 @@ export async function handleMemoryRead(args?: MemoryReadArgs): Promise<ToolResul
         has_more: false,
         next_offset: null,
       },
-    };
+      format: args?.response_format === "json" ? "json" : "markdown",
+    });
   }
 
   if (detailId) {
@@ -982,6 +999,7 @@ export async function handleMemoryRead(args?: MemoryReadArgs): Promise<ToolResul
         isError: true,
       };
     }
+    const recallExplanation = explain ? explainRecall(getDb(), [{ id: fragment.id, method: "explicit_id", rank: null }], { mode: "explicit_ids", project: null }, !!loadConfig().verification?.stale_check) : undefined;
     const boosted = core.boostOnAccess(fragment, context);
     trackReadIntoSession([detailId]);
 
@@ -992,7 +1010,9 @@ export async function handleMemoryRead(args?: MemoryReadArgs): Promise<ToolResul
     // B6: opt-in code-evidence staleness check (config-gated; reads the cited
     // file only when verification.stale_check is on). Advisory — never mutates.
     let staleFlags: evidence.StaleReport[] = [];
-    if (loadConfig().verification?.stale_check) {
+    if (recallExplanation) {
+      staleFlags = recallExplanation.items.flatMap(item => item.freshness?.checks ?? []).filter(r => r.stale);
+    } else if (loadConfig().verification?.stale_check) {
       staleFlags = evidence.checkStaleByLegacyId(getDb(), detailId).filter(r => r.stale);
       if (staleFlags.length > 0) {
         const lines = staleFlags.map(s => `- ${s.file_path}${s.symbol ? ` (${s.symbol})` : ""}: ${s.reason}`);
@@ -1002,6 +1022,13 @@ export async function handleMemoryRead(args?: MemoryReadArgs): Promise<ToolResul
 
     if (args?.expand_graph) {
       graph = core.expandGraph(detailId);
+      if (recallExplanation) {
+        const graphExplanation = explainRecall(getDb(), graph.map((node, index) => ({
+          id: node.fragment.id, method: "graph_expansion", rank: index + 1, score: node.score,
+          graph: { root_id: fragment.id, depth: node.depth },
+        })), { mode: "explicit_ids", project: null }, !!loadConfig().verification?.stale_check);
+        recallExplanation.items.push(...graphExplanation.items);
+      }
       if (graph.length > 0) {
         const lines = graph.map(
           g => `- [${g.fragment.id}] (depth ${g.depth}, score ${g.score.toFixed(2)}) ${g.fragment.title}: ${g.fragment.description || g.fragment.fragment.slice(0, 80)}`,
@@ -1012,10 +1039,11 @@ export async function handleMemoryRead(args?: MemoryReadArgs): Promise<ToolResul
     notifyMemoryChange();
 
     logger.flow("memory_read", "complete_single", { id: detailId, confidence: boosted.confidence?.toFixed(2), graph: graph.length });
-    return {
-      content: [{ type: "text", text: detailText }],
-      structuredContent: {
+    return buildResult({
+      text: detailText + (recallExplanation ? formatRecallExplanation(recallExplanation) : ""),
+      data: {
         count: 1,
+        ...(recallExplanation ? { recall_explanation: recallExplanation } : {}),
         fragments: [{
           id: detailId,
           title: boosted.title,
@@ -1038,7 +1066,8 @@ export async function handleMemoryRead(args?: MemoryReadArgs): Promise<ToolResul
         has_more: false,
         next_offset: null,
       },
-    };
+      format: args?.response_format === "json" ? "json" : "markdown",
+    });
   }
 
   // Pagination params (browse/search branch only; id/ids branches returned above).
@@ -1049,10 +1078,12 @@ export async function handleMemoryRead(args?: MemoryReadArgs): Promise<ToolResul
   // Fetch a generous superset so offset+limit slicing has room to work. The old
   // hard 30/200 caps are gone — callers page through via limit/offset instead.
   let allResults: any[];
+  let searchTrace: store.MemorySearchTrace | undefined;
+  const searchOptions = { limit: 500, ...(explain ? { onTrace: (trace: store.MemorySearchTrace) => { searchTrace = trace; } } : {}) };
   if (query) {
-    allResults = core.searchMemory(query, { limit: 500 });
+    allResults = core.searchMemory(query, searchOptions);
   } else {
-    allResults = core.searchMemory("", { limit: 500 });
+    allResults = core.searchMemory("", searchOptions);
   }
   // Apply project scope to BOTH query and browse modes (only showAll escapes it).
   // Without this, query mode returned cross-project matches and auto-linked them
@@ -1069,6 +1100,10 @@ export async function handleMemoryRead(args?: MemoryReadArgs): Promise<ToolResul
   const total = allResults.length;
   const results = allResults.slice(offset, offset + limit);
   const page = paginationMeta(total, limit, offset);
+  const recallExplanation = explain ? explainRecall(getDb(), results.map((fragment, index) => ({
+    id: fragment.id, method: searchTrace?.method ?? "confidence_browse", rank: offset + index + 1,
+    score: searchTrace?.scores.get(fragment.id),
+  })), scope, !!loadConfig().verification?.stale_check) : undefined;
 
   logger.flow("memory_read", "search_results", { query, total, result_count: results.length, offset, limit, minConfidence: args?.minConfidence });
 
@@ -1145,6 +1180,7 @@ export async function handleMemoryRead(args?: MemoryReadArgs): Promise<ToolResul
 
   const structured = {
     count: (results as any[]).length,
+    ...(recallExplanation ? { recall_explanation: recallExplanation } : {}),
     total,
     fragments: (results as any[]).map((r: any) => ({
       id: r.id,
@@ -1158,7 +1194,7 @@ export async function handleMemoryRead(args?: MemoryReadArgs): Promise<ToolResul
     next_offset: page.next_offset,
   };
 
-  return buildResult({ text: hookResponse, data: structured, format: responseFormat });
+  return buildResult({ text: hookResponse + (recallExplanation ? formatRecallExplanation(recallExplanation) : ""), data: structured, format: responseFormat });
 }
 
 export async function handleMemoryAdd(args?: MemoryAddArgs): Promise<ToolResult> {
@@ -2550,7 +2586,7 @@ export async function handleProjectAnalytics(args?: { project?: string; response
   return buildResult({ text: formatted, data: { ...progress, project, count: null, projects: [] }, format: responseFormat });
 }
 
-export async function handleSemanticSearch(args?: { query?: string; project?: string; topK?: number; offset?: number; hybrid?: boolean; response_format?: "markdown" | "json" }): Promise<ToolResult> {
+export async function handleSemanticSearch(args?: { query?: string; project?: string; topK?: number; offset?: number; hybrid?: boolean; explain?: boolean; response_format?: "markdown" | "json" }): Promise<ToolResult> {
   const query = args?.query;
   const project = args?.project || null;
   const topK = args?.topK || 10;
@@ -2573,18 +2609,22 @@ export async function handleSemanticSearch(args?: { query?: string; project?: st
   // A4: opt-in hybrid retrieval (BM25 + TF-IDF fused via RRF, injectionScore
   // rerank, MMR diversity). Default path stays pure TF-IDF (behavior unchanged).
   const allResults = args?.hybrid
-    ? intel.hybridSearch(db, query, { project, topK: fetchK }).map(h => {
+    ? intel.hybridSearch(db, query, { project, topK: fetchK, explain: args?.explain === true }).map(h => {
         const row = db.prepareCached("SELECT title, fragment FROM memories WHERE legacy_id = ?").get(h.memory_id) as { title: string; fragment: string } | undefined;
-        return { memory_id: h.memory_id, score: h.score, title: row?.title ?? h.memory_id, fragment: row?.fragment ?? "" };
+        return { memory_id: h.memory_id, score: h.score, title: row?.title ?? h.memory_id, fragment: row?.fragment ?? "", ...(h.components ? { components: h.components } : {}) };
       })
     : intel.semanticSearch(db, query, { project, topK: fetchK });
   const total = allResults.length;
   const results = allResults.slice(offset, offset + cappedK);
   const page = paginationMeta(total, cappedK, offset);
+  const recallExplanation = args?.explain === true ? explainRecall(db, results.map((r, index): RecallSelection => ({
+    id: r.memory_id, method: args?.hybrid ? "hybrid_rrf_mmr" : "tfidf_cosine", rank: offset + index + 1, score: r.score,
+    ...("components" in r && r.components ? { components: r.components as RecallSelection["components"] } : {}),
+  })), { mode: project ? "project_and_global" : "all_projects", project: project?.toLowerCase() ?? null }, !!loadConfig().verification?.stale_check) : undefined;
 
   if (results.length === 0) {
-    const empty = { count: 0, total, results: [], has_more: page.has_more, next_offset: page.next_offset };
-    return buildResult({ text: `No semantically similar memories found for: "${query}"`, data: empty, format: responseFormat });
+    const empty = { count: 0, total, results: [], has_more: page.has_more, next_offset: page.next_offset, ...(recallExplanation ? { recall_explanation: recallExplanation } : {}) };
+    return buildResult({ text: `No semantically similar memories found for: "${query}"` + (recallExplanation ? formatRecallExplanation(recallExplanation) : ""), data: empty, format: responseFormat });
   }
 
   let output = `=== SEMANTIC SEARCH RESULTS ===\nQuery: "${query}"\nFound ${results.length} similar memories:\n\n`;
@@ -2601,6 +2641,7 @@ export async function handleSemanticSearch(args?: { query?: string; project?: st
   const structured = {
     count: results.length,
     total,
+    ...(recallExplanation ? { recall_explanation: recallExplanation } : {}),
     results: results.map((r: any) => ({
       id: r.memory_id,
       title: r.title,
@@ -2611,7 +2652,7 @@ export async function handleSemanticSearch(args?: { query?: string; project?: st
     next_offset: page.next_offset,
   };
 
-  return buildResult({ text: output, data: structured, format: responseFormat });
+  return buildResult({ text: output + (recallExplanation ? formatRecallExplanation(recallExplanation) : ""), data: structured, format: responseFormat });
 }
 
 export async function handleCallTool(request: ToolCallRequest): Promise<ToolResult> {
@@ -2622,6 +2663,19 @@ export async function handleCallTool(request: ToolCallRequest): Promise<ToolResu
 
   try {
     switch (name) {
+      case "backup_create":
+      case "backup_preview":
+      case "backup_restore": {
+        const result = handleBackupTool(name, args);
+        if (name === "backup_restore") {
+          activeSessionId = null;
+          virtualSession.discardVirtualSession();
+          try { notifyMemoryChange(); } catch (error) {
+            logger.warn("Restore succeeded but memory-change notification failed", { error: String(error) });
+          }
+        }
+        return result;
+      }
       case "session_start": {
         const result = await handleSessionStart(args as SessionStartArgs);
         logger.response(name, !!result.isError, Date.now() - startTime);

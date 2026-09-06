@@ -67,11 +67,14 @@ export interface HybridOptions {
   lambda?: number;
   /** Candidate pool size drawn from each ranker before fusion. */
   poolSize?: number;
+  /** Return actual rank-fusion inputs for opt-in recall explanations. */
+  explain?: boolean;
 }
 
 export interface HybridResult {
   memory_id: string;
   score: number;
+  components?: { lexical_rank: number | null; semantic_rank: number | null; fusion_score: number; priority_contribution: number };
 }
 
 /**
@@ -96,13 +99,13 @@ export function hybridSearch(db: LemmaDB, query: string, options: HybridOptions 
   // TF-IDF over the same scope (its own prefilter clause).
   const scopeRows = db.prepareCached(
     options.project
-      ? `SELECT legacy_id, title, fragment, description FROM memories WHERE (lower(project) = ? OR project IS NULL) AND invalidated_at IS NULL`
-      : `SELECT legacy_id, title, fragment, description FROM memories WHERE invalidated_at IS NULL`,
+      ? `SELECT legacy_id, title, fragment, description, confidence, created_at FROM memories WHERE (lower(project) = ? OR project IS NULL) AND invalidated_at IS NULL`
+      : `SELECT legacy_id, title, fragment, description, confidence, created_at FROM memories WHERE invalidated_at IS NULL`,
   ).all(...(options.project ? [options.project.toLowerCase()] : [])) as {
-    legacy_id: string; title: string; fragment: string; description: string | null;
+    legacy_id: string; title: string; fragment: string; description: string | null; confidence: number; created_at: string;
   }[];
 
-  const fragments = scopeRows.map(r => ({ id: r.legacy_id, title: r.title, fragment: r.fragment, description: r.description ?? "" } as MemoryFragment));
+  const fragments = scopeRows.map(r => ({ id: r.legacy_id, title: r.title, fragment: r.fragment, description: r.description ?? "", confidence: r.confidence, created: r.created_at } as MemoryFragment));
   const vectors = fragments.length > 0 ? buildVectorsCached(db, fragments) : [];
   const vectorById = new Map<string, TfidfVector>(vectors.map(v => [v.memory_id, v]));
   const tfidf = query.trim() ? findSemanticSimilar(query, vectors, poolSize, -Infinity) : [];
@@ -121,7 +124,9 @@ export function hybridSearch(db: LemmaDB, query: string, options: HybridOptions 
   const relevance = new Map<string, number>();
   for (const [id, rrfScore] of rrf) {
     const frag = fragById.get(id) ?? bmById.get(id);
-    const inj = frag ? injectionScore(frag) : 0;
+    const priority = frag ? injectionScore(frag) : 0;
+    // Historical records can have malformed dates; never serialize a NaN score.
+    const inj = Number.isFinite(priority) ? priority : 0;
     relevance.set(id, rrfScore + inj * 0.05);
   }
 
@@ -137,5 +142,13 @@ export function hybridSearch(db: LemmaDB, query: string, options: HybridOptions 
   };
   const diversified = mmrRerank(ranked, sim, lambda, topK);
 
-  return diversified.map(id => ({ memory_id: id, score: relevance.get(id) ?? 0 }));
+  return diversified.map(id => ({
+    memory_id: id, score: relevance.get(id) ?? 0,
+    ...(options.explain ? { components: {
+      lexical_rank: bm25Order.includes(id) ? bm25Order.indexOf(id) + 1 : null,
+      semantic_rank: tfidfOrder.includes(id) ? tfidfOrder.indexOf(id) + 1 : null,
+      fusion_score: rrf.get(id) ?? 0,
+      priority_contribution: (relevance.get(id) ?? 0) - (rrf.get(id) ?? 0),
+    } } : {}),
+  }));
 }

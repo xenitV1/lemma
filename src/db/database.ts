@@ -4,6 +4,7 @@ import fs from "fs";
 import Database from "better-sqlite3";
 import { logger } from "../logger.js";
 import { runMigrations } from "./migration.js";
+import { DatabaseClient, connectionBlocker, type ConnectionInspection } from "./clients.js";
 
 const DEFAULT_DB_PATH = path.join(os.homedir(), ".lemma", "lemma.db");
 
@@ -11,6 +12,7 @@ export class LemmaDB {
   private static readonly MAX_CACHE_SIZE = 200;
   readonly db: Database.Database;
   private stmtCache: Map<string, Database.Statement> = new Map();
+  private client: DatabaseClient | null = null;
 
   constructor(dbPath: string = DEFAULT_DB_PATH) {
     const dir = path.dirname(dbPath);
@@ -19,13 +21,19 @@ export class LemmaDB {
     }
 
     this.db = new Database(dbPath);
-
-    this.db.pragma("journal_mode = WAL");
-    this.db.pragma("synchronous = NORMAL");
-    this.db.pragma("foreign_keys = ON");
-    this.db.pragma("busy_timeout = 5000");
-    this.db.pragma("cache_size = -64000");
-    this.db.pragma("temp_store = MEMORY");
+    try {
+      this.db.pragma("busy_timeout = 5000");
+      this.db.pragma("journal_mode = WAL");
+      this.db.pragma("synchronous = NORMAL");
+      this.db.pragma("foreign_keys = ON");
+      this.db.pragma("cache_size = -64000");
+      this.db.pragma("temp_store = MEMORY");
+      if (dbPath !== ":memory:") this.client = new DatabaseClient(dbPath, this.db);
+    } catch (error) {
+      this.db.close();
+      this.client?.close();
+      throw error;
+    }
 
     logger.info("Database opened", { path: dbPath });
   }
@@ -46,7 +54,37 @@ export class LemmaDB {
   close(): void {
     this.stmtCache.clear();
     this.db.close();
+    this.client?.close();
     logger.info("Database closed");
+  }
+
+  getRestoreReadiness() {
+    const connections: ConnectionInspection = this.client?.inspectConnections() ?? {
+      current_connection: { pid: process.pid, connection_id: null },
+      blocking_connections: [], unverifiable_leases: 0, inspection_error: null,
+    };
+    const blocker = connectionBlocker(connections);
+    const sameProcess = connections.blocking_connections.some(connection => connection.same_process);
+    return {
+      status: blocker ? "blocked" as const : "ready" as const,
+      ...connections,
+      conversation_mapping: "unavailable" as const,
+      message: `Current MCP process: PID ${process.pid}. Keep this MCP connection open. ` +
+        (blocker ? `${blocker} Resolve the other connections through their application and preview again. ` : "No other cooperating Lemma connections detected. ") +
+        (sameProcess ? "A blocking connection shares this process; do not terminate the current process. " : "") +
+        "Conversation names and IDs are unavailable; do not infer a conversation from a PID. This is a point-in-time check and connections are checked again on restore.",
+    };
+  }
+
+  withRestoreLock<T>(fn: () => T): T {
+    return this.db.transaction(() => {
+      this.client?.assertSoleClient();
+      return fn();
+    }).immediate();
+  }
+
+  clearStatementCache(): void {
+    this.stmtCache.clear();
   }
 }
 
