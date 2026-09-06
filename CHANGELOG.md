@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.21.0] - 2026-09-06
+
+### Added
+- Portable MCP backups with `backup_create`, `backup_preview`, and `backup_restore`, including explicit confirmation, verified safety backups, connection checks, transactional replacement, and supported historical schema upgrades.
+- Opt-in recall explanations for `memory_read` and `semantic_search`, with actual retrieval scores, recorded provenance, and bounded evidence checks.
+
+### Fixed
+- Exclude invalidated memories from default semantic search and recall explanations.
+- Redact secrets in memory updates and diagnostic logs before truncation or serialization.
+- Reject FIFO backup paths without blocking the MCP connection.
+- Preserve finite hybrid ranking scores and parseable JSON responses alongside lifecycle notices.
+- Make time-sensitive ranking fixtures independent of fixed calendar dates.
+
+### Verified
+- 890 tests, typecheck, build, and real stdio backup/recall acceptance passed locally.
+- GitHub CI passed on Node 20/22; backup tests passed on Linux, Windows, and macOS.
+
 ## [0.20.0] - 2026-07-05
 
 Wave 3 — the structural roadmap (`docs/development/ROADMAP.md`). All seven items shipped, each additive or opt-in with today's behavior as the default; the 26-tool contract is unchanged (new capabilities are optional parameters on existing tools) and every schema change is a gated, idempotent, downgrade-safe migration. Full suite green (823) + build + real-MCP smoke.
