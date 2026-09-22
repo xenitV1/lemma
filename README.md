@@ -1,3 +1,5 @@
+
+
 <p align="center">
   <img src="assets/logo.png" width="200" alt="Lemma Logo">
 </p>
@@ -46,6 +48,7 @@ Add Lemma to your MCP client configuration:
 lemma -lib    # Library Mode: snapshot of your entire knowledge base
 lemma -vis    # Visualizer: interactive memory graph in browser
 lemma -vis -p 8080  # Visualizer on custom port (default: 3456)
+lemma --install-skill  # Install/update the Lemma skill at ~/.agents/skills/lemma/
 ```
 
 **Library Mode** (`-lib`) outputs a full analysis of all memories, guides, relations, stale fragments, distill candidates, and suggested actions. Useful for periodic maintenance and review.
