@@ -2,6 +2,7 @@
 import { LemmaDB, getDb, setDataDir } from "../../src/db/database.js";
 import { previewRestore, restoreBackup } from "../../src/db/backup.js";
 import path from "node:path";
+import fs from "node:fs";
 
 const [mode, file, backup] = process.argv.slice(2);
 if (mode === 'hold') {
@@ -13,6 +14,12 @@ if (mode === 'hold') {
   new LemmaDB(file);
   process.send?.('ready');
   process.on('message', () => process.exit(0));
+} else if (mode === 'emit-exit') {
+  // The 'exit' event can fire without the process ending; report what the hook left behind.
+  const db = new LemmaDB(file);
+  process.emit('exit', 0);
+  const leases = fs.readdirSync(path.dirname(file)).filter(name => name.startsWith('lemma.db.client-'));
+  process.send?.({ open: db.db.open, leases: leases.length }, () => process.exit(0));
 } else if (mode === 'crash') {
   setDataDir(path.dirname(file));
   const db = getDb().db;

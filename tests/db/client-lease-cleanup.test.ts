@@ -38,6 +38,22 @@ test('a process that exits with its connection still open removes its lease', { 
   }
 });
 
+test('the exit hook never leaves a lease missing while its connection is still open', { timeout: 20000 }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lemma-lease-emit-exit-'));
+  try {
+    const child = fork(worker, ['emit-exit', path.join(dir, 'lemma.db')], options);
+    const exited = once(child, 'exit');
+    const [report] = await Promise.race([once(child, 'message'), exited.then(() => { throw new Error('worker exited without reporting'); })]);
+    await exited;
+    const { open, leases: remaining } = report as { open: boolean; leases: number };
+    // Either the connection is closed and the lease is gone, or both are still there.
+    assert.equal(open, false, 'the hook closes the SQLite connection');
+    assert.equal(remaining, 0, 'and only then removes the lease');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('opening a connection removes leases of processes that no longer exist, and keeps the rest', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lemma-lease-sweep-'));
   const dbPath = path.join(dir, 'lemma.db');

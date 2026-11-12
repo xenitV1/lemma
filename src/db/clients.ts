@@ -48,17 +48,17 @@ const openClients = new Set<DatabaseClient>();
 let exitHookInstalled = false;
 
 function releaseOpenClients(): void {
-  for (const client of [...openClients]) {
-    try { client.close(); } catch { /* exiting: nothing left to report to */ }
-  }
+  for (const client of [...openClients]) client.closeConnectionThenLease();
 }
 
 export class DatabaseClient {
   private readonly directory: string;
   private readonly lease: string;
   private readonly prefix: string;
+  private readonly db: Database.Database;
 
   constructor(dbPath: string, db: Database.Database) {
+    this.db = db;
     const canonical = fs.realpathSync(dbPath);
     this.directory = path.dirname(canonical);
     this.prefix = `${path.basename(canonical)}.client-`;
@@ -126,6 +126,17 @@ export class DatabaseClient {
   assertSoleClient(): void {
     const blocker = connectionBlocker(this.inspectConnections());
     if (blocker) throw new Error(`${blocker} Close other Lemma connections through their application, then preview again. Keep this MCP connection open; never terminate its process.`);
+  }
+
+  /**
+   * Exit-hook release. The lease is what keeps restore away from memory this process is
+   * using, so the SQLite connection is closed first: the `exit` event can fire without the
+   * process ending (`process.emit("exit")`), and later exit listeners could still use an open
+   * connection. If the connection cannot be closed, the lease stays.
+   */
+  closeConnectionThenLease(): void {
+    try { this.db.close(); } catch { return; }
+    try { this.close(); } catch { /* exiting: nothing left to report to */ }
   }
 
   close(): void {
