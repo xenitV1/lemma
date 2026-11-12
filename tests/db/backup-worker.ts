@@ -8,6 +8,11 @@ if (mode === 'hold') {
   const db = new LemmaDB(file);
   process.send?.('ready');
   process.on('message', () => { db.close(); process.exit(0); });
+} else if (mode === 'exit-open') {
+  // Leaves through process.exit() with the connection still open, like a server shutdown.
+  new LemmaDB(file);
+  process.send?.('ready');
+  process.on('message', () => process.exit(0));
 } else if (mode === 'crash') {
   setDataDir(path.dirname(file));
   const db = getDb().db;

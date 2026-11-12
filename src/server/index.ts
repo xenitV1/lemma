@@ -16,7 +16,7 @@ import { handleCallTool, autoStartSession, autoEndSession } from "./handlers.js"
 import { installSkill } from "./install-skill.js";
 import { triggerHook, HookTypes } from "./hooks.js";
 import * as core_config from "../memory/config.js";
-import { initDatabase, getDb } from "../db/index.js";
+import { initDatabase, getDb, closeDb } from "../db/index.js";
 import { collectLibrarySnapshot, formatLibrarySnapshot } from "../db/library-store.js";
 import { setNotifyChange } from "./handlers.js";
 import { logger, initLogger } from "../logger.js";
@@ -431,6 +431,14 @@ function gracefulShutdown(signal: string): void {
     }
   } else {
     logger.flow("server", "virtual_session_finalize_skipped", { reason: "none" });
+  }
+
+  // Close the database after the virtual session is saved: this checkpoints the WAL and
+  // removes this connection's client lease (the exit hook in db/clients.ts is the fallback).
+  try {
+    closeDb();
+  } catch (e) {
+    logger.warn("Database close failed during shutdown", (e as Error).message);
   }
 
   process.exit(0);
