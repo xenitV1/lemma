@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fork, spawn, spawnSync } from "node:child_process";
+import { fork, spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import { randomUUID } from "node:crypto";
 import { LemmaDB } from "../../src/db/database.js";
@@ -14,6 +14,12 @@ const options = { cwd, execArgv: ['--import', 'tsx', '--import', './tests/_setup
 
 const leases = (dir: string) => fs.readdirSync(dir).filter(name => name.startsWith('lemma.db.client-')).sort();
 
+/** Cleanup for failure paths: end a child that is still running and wait for it, so a failed test does not leave the run hanging. */
+async function stopChild(child: ChildProcess, exited: Promise<unknown>): Promise<void> {
+  if (child.exitCode === null && child.signalCode === null) child.kill();
+  await exited;
+}
+
 /** PID of a process that has already exited, so the OS reports it as gone. */
 function deadPid(): number {
   const child = spawnSync(process.execPath, ['-e', '0']);
@@ -23,9 +29,9 @@ function deadPid(): number {
 
 test('a process that exits with its connection still open removes its lease', { timeout: 20000 }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lemma-lease-exit-'));
+  const child = fork(worker, ['exit-open', path.join(dir, 'lemma.db')], options);
+  const exited = once(child, 'exit');
   try {
-    const child = fork(worker, ['exit-open', path.join(dir, 'lemma.db')], options);
-    const exited = once(child, 'exit');
     const [signal] = await Promise.race([once(child, 'message'), exited.then(() => { throw new Error('worker exited before registering'); })]);
     assert.equal(signal, 'ready');
     assert.equal(leases(dir).length, 1, 'the worker registers one lease');
@@ -34,22 +40,24 @@ test('a process that exits with its connection still open removes its lease', { 
     assert.equal(code, 0);
     assert.deepEqual(leases(dir), [], 'process.exit() must not leave the lease behind');
   } finally {
+    await stopChild(child, exited);
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
 test('the exit hook never leaves a lease missing while its connection is still open', { timeout: 20000 }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lemma-lease-emit-exit-'));
+  const child = fork(worker, ['emit-exit', path.join(dir, 'lemma.db')], options);
+  const exited = once(child, 'exit');
   try {
-    const child = fork(worker, ['emit-exit', path.join(dir, 'lemma.db')], options);
-    const exited = once(child, 'exit');
     const [report] = await Promise.race([once(child, 'message'), exited.then(() => { throw new Error('worker exited without reporting'); })]);
     await exited;
     const { open, leases: remaining } = report as { open: boolean; leases: number };
-    // Either the connection is closed and the lease is gone, or both are still there.
+    // The hook must close the connection before the lease disappears; here both happen.
     assert.equal(open, false, 'the hook closes the SQLite connection');
     assert.equal(remaining, 0, 'and only then removes the lease');
   } finally {
+    await stopChild(child, exited);
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -80,11 +88,11 @@ test('the MCP server removes its lease when the client closes stdin', { timeout:
   // Isolated home: the server always uses ~/.lemma, so point the home directory at a temp dir.
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'lemma-lease-server-'));
   const lemmaDir = path.join(home, '.lemma');
+  const server = spawn(process.execPath, ['--import', 'tsx', 'src/index.ts'], {
+    cwd, env: { ...process.env, HOME: home, USERPROFILE: home }, stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  const exited = once(server, 'exit');
   try {
-    const server = spawn(process.execPath, ['--import', 'tsx', 'src/index.ts'], {
-      cwd, env: { ...process.env, HOME: home, USERPROFILE: home }, stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    const exited = once(server, 'exit');
     server.stdout.resume();
     server.stderr.resume();
     const deadline = Date.now() + 45000;
@@ -98,6 +106,7 @@ test('the MCP server removes its lease when the client closes stdin', { timeout:
     assert.equal(code, 0);
     assert.deepEqual(leases(lemmaDir), [], 'a clean shutdown must not leave the lease behind');
   } finally {
+    await stopChild(server, exited);
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
