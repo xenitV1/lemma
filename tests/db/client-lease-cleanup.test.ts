@@ -14,10 +14,14 @@ const options = { cwd, execArgv: ['--import', 'tsx', '--import', './tests/_setup
 
 const leases = (dir: string) => fs.readdirSync(dir).filter(name => name.startsWith('lemma.db.client-')).sort();
 
-/** Cleanup for failure paths: end a child that is still running and wait for it, so a failed test does not leave the run hanging. */
+/**
+ * Cleanup for failure paths: end a child that is still running and wait for it, so a failed
+ * test does not leave the run hanging. SIGKILL, because the server handles SIGTERM with its
+ * own shutdown, which is what may be broken. A spawn error must not hide the test's failure.
+ */
 async function stopChild(child: ChildProcess, exited: Promise<unknown>): Promise<void> {
-  if (child.exitCode === null && child.signalCode === null) child.kill();
-  await exited;
+  if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+  await exited.catch(() => {});
 }
 
 /** PID of a process that has already exited, so the OS reports it as gone. */
