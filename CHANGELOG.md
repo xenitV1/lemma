@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- Remove the client lease (`lemma.db.client-<pid>-<uuid>`) when a process exits: the MCP server now closes the database on shutdown (which also checkpoints the WAL), and an exit hook releases any connection still open. Before, every server run left its lease behind.
+- Opening a connection removes leases whose process the OS reports as gone, so leases from killed processes no longer accumulate. Leases of live, recycled-PID or unverifiable processes are kept and still block `backup_restore`. The exit hook closes the SQLite connection before it removes the lease, and keeps the lease if the connection cannot be closed.
+- Known limit: a lease name records only a process ID, so this check assumes every Lemma process using a data directory shares one PID namespace. Do not share `~/.lemma` with a container or another host; a process there would see host PIDs as gone and remove their leases.
+
 ## [0.21.0] - 2026-09-06
 
 ### Added

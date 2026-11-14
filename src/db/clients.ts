@@ -35,12 +35,30 @@ export function connectionBlocker(info: ConnectionInspection): string | null {
   return null;
 }
 
+/** PID encoded in a lease file name (`<prefix><pid>-<uuid>`), or NaN when the name is not a valid lease. */
+function leasePid(suffix: string): number {
+  const match = /^([1-9]\d*)-[0-9a-f-]{36}$/.exec(suffix);
+  return match ? Number(match[1]) : NaN;
+}
+
+// Leases still registered by this process. The server leaves through process.exit(),
+// so connections are released from an exit hook rather than relying on every caller
+// to close them first; otherwise each run leaves a lease file behind.
+const openClients = new Set<DatabaseClient>();
+let exitHookInstalled = false;
+
+function releaseOpenClients(): void {
+  for (const client of [...openClients]) client.closeConnectionThenLease();
+}
+
 export class DatabaseClient {
   private readonly directory: string;
   private readonly lease: string;
   private readonly prefix: string;
+  private readonly db: Database.Database;
 
   constructor(dbPath: string, db: Database.Database) {
+    this.db = db;
     const canonical = fs.realpathSync(dbPath);
     this.directory = path.dirname(canonical);
     this.prefix = `${path.basename(canonical)}.client-`;
@@ -57,6 +75,31 @@ export class DatabaseClient {
       this.close();
       throw error;
     }
+    openClients.add(this);
+    if (!exitHookInstalled) {
+      process.on("exit", releaseOpenClients);
+      exitHookInstalled = true;
+    }
+    this.removeLeasesOfExitedProcesses();
+  }
+
+  /**
+   * A killed process cannot remove its own lease. Remove leases only when the OS reports
+   * their process as gone (ESRCH). Leases of live or unverifiable processes, including a
+   * recycled PID, stay: dropping a live client's lease could let restore replace memory
+   * that client is still using, while a kept stale lease only blocks restore.
+   */
+  private removeLeasesOfExitedProcesses(): void {
+    let entries: string[];
+    try { entries = fs.readdirSync(this.directory); } catch { return; }
+    for (const name of entries) {
+      if (!name.startsWith(this.prefix)) continue;
+      const file = path.join(this.directory, name);
+      if (file === this.lease) continue;
+      const pid = leasePid(name.slice(this.prefix.length));
+      if (!Number.isSafeInteger(pid) || processIsAlive(pid)) continue;
+      try { fs.unlinkSync(file); } catch { /* another client removed it, or it is in use */ }
+    }
   }
 
   inspectConnections(): ConnectionInspection {
@@ -71,8 +114,7 @@ export class DatabaseClient {
       if (!name.startsWith(this.prefix)) continue;
       const file = path.join(this.directory, name);
       if (file === this.lease) continue;
-      const match = /^([1-9]\d*)-[0-9a-f-]{36}$/.exec(name.slice(this.prefix.length));
-      const pid = match ? Number(match[1]) : NaN;
+      const pid = leasePid(name.slice(this.prefix.length));
       if (!Number.isSafeInteger(pid)) { result.unverifiable_leases++; continue; }
       if (processIsAlive(pid)) {
         result.blocking_connections.push({ pid, connection_id: name, same_process: pid === process.pid });
@@ -86,7 +128,19 @@ export class DatabaseClient {
     if (blocker) throw new Error(`${blocker} Close other Lemma connections through their application, then preview again. Keep this MCP connection open; never terminate its process.`);
   }
 
+  /**
+   * Exit-hook release. The lease is what keeps restore away from memory this process is
+   * using, so the SQLite connection is closed first: the `exit` event can fire without the
+   * process ending (`process.emit("exit")`), and later exit listeners could still use an open
+   * connection. If the connection cannot be closed, the lease stays.
+   */
+  closeConnectionThenLease(): void {
+    try { this.db.close(); } catch { return; }
+    try { this.close(); } catch { /* exiting: nothing left to report to */ }
+  }
+
   close(): void {
+    openClients.delete(this);
     try { fs.unlinkSync(this.lease); } catch (error) { if (!isMissing(error)) throw error; }
   }
 }
