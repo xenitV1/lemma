@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.21.1] - 2026-11-14
 
 ### Fixed
 - Remove the client lease (`lemma.db.client-<pid>-<uuid>`) when a process exits: the MCP server now closes the database on shutdown (which also checkpoints the WAL), and an exit hook releases any connection still open. Before, every server run left its lease behind.
